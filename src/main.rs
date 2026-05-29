@@ -9,25 +9,26 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use frust::{
-    FocusState, FocusUpdate, InputPolicy, Layer, UiEvent, ViewId, ViewNode, ViewTree, render_tree,
+    FocusState, InputPolicy, Layer, UiEvent, ViewNode, ViewTree, render_tree,
     route_event,
-    widgets::{CellGrid, Modal},
+    widgets::{CellGrid, CustomView, Panel},
 };
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 
 const PRINTABLE_START: u8 = b' ';
 const N_PRINTABLE_CHARS: u16 = 95;
+const BRIDGEPORT_OUTSKIRTS: &str = "Bridgeport Outskirts";
 
 #[derive(Debug, Default)]
 struct AppState {
-    show_bridgeport: bool,
+    current_area_name: &'static str,
     quit: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Msg {
-    DismissBridgeport,
+struct Msg {
+    
 }
+
 
 fn main() -> io::Result<()> {
     let mut stdout = io::stdout();
@@ -39,7 +40,7 @@ fn main() -> io::Result<()> {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         let mut state = AppState {
-            show_bridgeport: true,
+            current_area_name: BRIDGEPORT_OUTSKIRTS,
             quit: false,
         };
         let mut focus = FocusState::default();
@@ -64,13 +65,9 @@ fn main() -> io::Result<()> {
             let size = terminal.size()?;
             let area = Rect::new(0, 0, size.width, size.height);
             let tree = compose(&state, area);
-            sync_modal_focus(&state, &mut focus);
 
             if let Ok(ui_event) = UiEvent::try_from(raw_event) {
                 let outcome = route_event(&ui_event, &tree, &state, &focus);
-                for message in outcome.messages {
-                    update(&mut state, message);
-                }
                 focus = focus.apply(&outcome.focus_update);
             }
         }
@@ -85,16 +82,16 @@ fn main() -> io::Result<()> {
 }
 
 fn compose(state: &AppState, area: Rect) -> ViewTree<AppState, Msg> {
-    let modal_width = area.width.saturating_sub(4).clamp(24, 42).min(area.width);
-    let modal_height = 5.min(area.height);
-    let modal_area = Rect::new(
-        area.x + area.width.saturating_sub(modal_width) / 2,
-        area.y
-            .saturating_add(1)
-            .min(area.y.saturating_add(area.height.saturating_sub(1))),
-        modal_width,
-        modal_height,
-    );
+    let len: u16 = state.current_area_name.len().try_into().unwrap();
+    let panel_width = len.saturating_add(4);
+    let panel_height = 3.min(area.height);
+    let panel_x = (area.width / 2)  - (panel_width / 2);
+    let panel_y = 1.min(area.height.saturating_sub(panel_height).max(0));
+    let panel_rect = Rect::new(panel_x, panel_y, panel_width, panel_height);
+    let text_x = panel_x.saturating_add(2);
+    let text_y = panel_y.saturating_add(1);
+    let text_rect = Rect::new(text_x, text_y, len, 1);
+
 
     ViewTree::new(
         frust::root(area)
@@ -105,17 +102,20 @@ fn compose(state: &AppState, area: Rect) -> ViewTree<AppState, Msg> {
                     .z_offset(i32::MIN),
                 area,
             ))
-            .modal_if(
-                state.show_bridgeport,
-                ViewNode::new(
-                    Modal::new("bridgeport-outskirts", "Bridgeport Outskirts")
-                        .title("Bridgeport Outskirts")
-                        .close_message(Msg::DismissBridgeport)
-                        .clear(true),
-                    modal_area,
-                ),
-            ),
-    )
+            .child(
+                ViewNode::new(Panel::new("area-name-box").borders(true).clear(true), panel_rect)
+                ).child(
+                    ViewNode::new(
+                    CustomView::new("area-name",  |frame, area, state: &AppState| {
+                        frame.render_widget(
+                            ratatui::widgets::Paragraph::new(state.current_area_name),
+                            area
+                        );
+                    }),
+                    text_rect,
+                    )
+                )
+            )
 }
 
 fn printable_grid(width: u16, height: u16) -> CellGrid {
@@ -128,22 +128,6 @@ fn printable_grid(width: u16, height: u16) -> CellGrid {
         }
     }
     grid
-}
-
-fn update(state: &mut AppState, message: Msg) {
-    match message {
-        Msg::DismissBridgeport => state.show_bridgeport = false,
-    }
-}
-
-fn sync_modal_focus(state: &AppState, focus: &mut FocusState) {
-    let mut update = FocusUpdate::default();
-    if state.show_bridgeport {
-        update.set_active_modal(ViewId::new("bridgeport-outskirts"));
-    } else {
-        update.clear_active_modal();
-    }
-    *focus = focus.apply(&update);
 }
 
 fn should_quit(event: &Event) -> bool {

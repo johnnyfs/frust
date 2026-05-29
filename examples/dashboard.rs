@@ -1,4 +1,4 @@
-use frust::{
+use frust::tui::{
     InputPolicy, Layer, ViewNode, ViewTree, render_tree,
     widgets::{Panel, Tooltip},
 };
@@ -28,7 +28,7 @@ fn compose(state: &AppState, area: Rect) -> ViewTree<AppState, Msg> {
     let popover = Rect::new(10, 3, 24, 5);
 
     ViewTree::new(
-        frust::root(area)
+        frust::tui::root(area)
             .child(ViewNode::new(Panel::new("metrics").title("Metrics"), left))
             .child(ViewNode::new(
                 Panel::new("activity").title("Activity"),

@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Widget},
 };
 
-use crate::{EventResult, FocusState, InputPolicy, Layer, UiEvent, View, ViewId};
+use crate::tui::{EventResult, FocusState, InputPolicy, Layer, UiEvent, View, ViewId};
 
 /// Bordered or unbordered rectangular region.
 pub struct Panel {

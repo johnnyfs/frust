@@ -5,7 +5,7 @@ use crossterm::event::{
     MouseEventKind as CrosstermMouseKind,
 };
 
-use crate::Point;
+use crate::tui::Point;
 
 /// Normalized UI event.
 #[derive(Debug, Clone, PartialEq, Eq)]

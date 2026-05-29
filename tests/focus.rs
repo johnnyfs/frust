@@ -1,4 +1,4 @@
-use frust::{FocusState, FocusUpdate, ViewId};
+use frust::tui::{FocusState, FocusUpdate, ViewId};
 
 #[test]
 fn focus_update_applies_only_explicit_fields() {

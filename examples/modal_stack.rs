@@ -1,4 +1,4 @@
-use frust::{
+use frust::tui::{
     FocusState, FocusUpdate, InputPolicy, Layer, ViewId, ViewNode, ViewTree, route_event,
     widgets::{Modal, Panel},
 };
@@ -17,7 +17,7 @@ enum Msg {
 fn compose(state: &AppState, area: Rect) -> ViewTree<AppState, Msg> {
     let modal_area = Modal::<Msg>::centered(area, 30, 7);
     ViewTree::new(
-        frust::root(area)
+        frust::tui::root(area)
             .child(ViewNode::new(
                 Panel::new("content")
                     .title("Content")
@@ -51,6 +51,6 @@ fn main() {
     update.set_active_modal(ViewId::new("confirm"));
     focus = focus.apply(&update);
 
-    let outcome = route_event(&frust::UiEvent::Tick, &tree, &state, &focus);
+    let outcome = route_event(&frust::tui::UiEvent::Tick, &tree, &state, &focus);
     assert!(outcome.messages.is_empty());
 }

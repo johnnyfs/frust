@@ -7,7 +7,7 @@ use std::{
 
 use ratatui::layout::Rect;
 
-use crate::{InputPolicy, Layer, View};
+use crate::tui::{InputPolicy, Layer, View};
 
 static NEXT_VIEW_ID: AtomicU64 = AtomicU64::new(1);
 

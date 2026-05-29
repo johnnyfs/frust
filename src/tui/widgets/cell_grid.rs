@@ -2,7 +2,7 @@
 
 use ratatui::{Frame, layout::Rect, style::Style};
 
-use crate::{InputPolicy, Layer, Point, View, ViewId};
+use crate::tui::{InputPolicy, Layer, Point, View, ViewId};
 
 /// A single drawable cell.
 #[derive(Debug, Clone, PartialEq, Eq)]

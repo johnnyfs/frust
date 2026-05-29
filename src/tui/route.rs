@@ -1,6 +1,6 @@
 //! Deterministic input routing and hit testing.
 
-use crate::{
+use crate::tui::{
     EventResult, FocusState, FocusUpdate, InputPolicy, MouseKind, NodeRef, UiEvent, ViewId,
     ViewTree,
 };

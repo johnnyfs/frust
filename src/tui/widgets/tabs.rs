@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Tabs as RatatuiTabs},
 };
 
-use crate::{EventResult, FocusState, InputPolicy, MouseKind, UiEvent, View, ViewId};
+use crate::tui::{EventResult, FocusState, InputPolicy, MouseKind, UiEvent, View, ViewId};
 
 /// Tab labels with click/key selection messages.
 pub struct Tabs<M> {

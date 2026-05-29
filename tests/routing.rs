@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use frust::{
+use frust::tui::{
     EventResult, FocusState, InputPolicy, Layer, MouseButton, MouseEvent, MouseKind, Point,
     UiEvent, View, ViewId, ViewNode, ViewTree, route_event,
 };
@@ -81,7 +81,7 @@ fn key(ch: char) -> UiEvent {
 #[test]
 fn hit_testing_overlapping_views_topmost_wins_and_outside_ignored() {
     let tree = ViewTree::new(
-        frust::root(Rect::new(0, 0, 20, 10))
+        frust::tui::root(Rect::new(0, 0, 20, 10))
             .child(ViewNode::new(
                 TestView::new(
                     "base",
@@ -121,7 +121,7 @@ fn hit_testing_overlapping_views_topmost_wins_and_outside_ignored() {
 #[test]
 fn ignored_mouse_event_falls_through_to_lower_hit() {
     let tree = ViewTree::new(
-        frust::root(Rect::new(0, 0, 20, 10))
+        frust::tui::root(Rect::new(0, 0, 20, 10))
             .child(ViewNode::new(
                 TestView::new(
                     "lower",
@@ -149,7 +149,7 @@ fn ignored_mouse_event_falls_through_to_lower_hit() {
 #[test]
 fn keyboard_routes_only_to_focused_view_and_mouse_down_can_focus() {
     let tree = ViewTree::new(
-        frust::root(Rect::new(0, 0, 20, 10))
+        frust::tui::root(Rect::new(0, 0, 20, 10))
             .child(ViewNode::new(
                 TestView::new(
                     "a",
@@ -190,7 +190,7 @@ fn keyboard_routes_only_to_focused_view_and_mouse_down_can_focus() {
 #[test]
 fn modal_capture_all_receives_events_outside_and_blocks_underlying() {
     let tree = ViewTree::new(
-        frust::root(Rect::new(0, 0, 30, 10))
+        frust::tui::root(Rect::new(0, 0, 30, 10))
             .child(ViewNode::new(
                 TestView::new(
                     "under",
@@ -223,14 +223,16 @@ fn modal_capture_all_receives_events_outside_and_blocks_underlying() {
 
 #[test]
 fn mouse_capture_routes_drag_outside_and_releases_on_up() {
-    let tree = ViewTree::new(frust::root(Rect::new(0, 0, 30, 10)).child(ViewNode::new(
-        TestView::new(
-            "drag",
-            InputPolicy::CaptureMouse,
-            EventResult::message(Msg::View("drag")),
-        ),
-        Rect::new(0, 0, 5, 5),
-    )));
+    let tree = ViewTree::new(
+        frust::tui::root(Rect::new(0, 0, 30, 10)).child(ViewNode::new(
+            TestView::new(
+                "drag",
+                InputPolicy::CaptureMouse,
+                EventResult::message(Msg::View("drag")),
+            ),
+            Rect::new(0, 0, 5, 5),
+        )),
+    );
 
     let down = route_event(
         &mouse(MouseKind::Down, 1, 1),
@@ -255,7 +257,7 @@ fn mouse_capture_routes_drag_outside_and_releases_on_up() {
 #[test]
 fn child_can_bubble_to_parent() {
     let tree = ViewTree::new(
-        frust::root(Rect::new(0, 0, 20, 10)).child(
+        frust::tui::root(Rect::new(0, 0, 20, 10)).child(
             ViewNode::new(
                 TestView::new(
                     "parent",

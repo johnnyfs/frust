@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::{InputPolicy, Layer, View, ViewId};
+use crate::tui::{InputPolicy, Layer, View, ViewId};
 
 /// Small top-layer hover box.
 pub struct Tooltip {
@@ -49,7 +49,7 @@ impl Tooltip {
     }
 
     /// Places a tooltip near an anchor while keeping it in bounds when possible.
-    pub fn near(anchor: crate::Point, size: (u16, u16), bounds: Rect) -> Rect {
+    pub fn near(anchor: crate::tui::Point, size: (u16, u16), bounds: Rect) -> Rect {
         let mut x = anchor.x.saturating_add(1);
         let mut y = anchor.y.saturating_add(1);
         if x.saturating_add(size.0) > bounds.x.saturating_add(bounds.width) {

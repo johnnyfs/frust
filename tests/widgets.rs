@@ -1,5 +1,5 @@
 use crossterm::event::KeyModifiers;
-use frust::{
+use frust::tui::{
     InputPolicy, MouseEvent, MouseKind, Point, UiEvent, ViewNode, ViewTree, render_tree,
     widgets::{CellGrid, ScrollMessages, ScrollView, Tabs},
 };
@@ -34,16 +34,16 @@ fn scroll_view_emits_wheel_messages_and_clips_content() {
         page_up: None,
         page_down: None,
     };
-    let tree = ViewTree::new(frust::root(Rect::new(0, 0, 8, 2)).child(ViewNode::new(
+    let tree = ViewTree::new(frust::tui::root(Rect::new(0, 0, 8, 2)).child(ViewNode::new(
         ScrollView::new("scroll", "one\ntwo\nthree", 1).messages(messages),
         Rect::new(0, 0, 8, 2),
     )));
 
-    let outcome = frust::route_event(
+    let outcome = frust::tui::route_event(
         &wheel(MouseKind::ScrollDown, 1, 1),
         &tree,
         &(),
-        &frust::FocusState::default(),
+        &frust::tui::FocusState::default(),
     );
     assert_eq!(outcome.messages, vec![Msg::Down]);
 
@@ -64,14 +64,14 @@ fn scroll_view_emits_wheel_messages_and_clips_content() {
 #[test]
 fn tabs_emit_click_message() {
     let tree = ViewTree::new(
-        frust::root(Rect::new(0, 0, 20, 1)).child(ViewNode::new(
+        frust::tui::root(Rect::new(0, 0, 20, 1)).child(ViewNode::new(
             Tabs::new("tabs", vec!["One".into(), "Two".into()], 0)
                 .select_messages(vec![Some(Msg::Tab(0)), Some(Msg::Tab(1))]),
             Rect::new(0, 0, 20, 1),
         )),
     );
 
-    let outcome = frust::route_event(
+    let outcome = frust::tui::route_event(
         &UiEvent::Mouse(MouseEvent {
             position: Point::new(6, 0),
             kind: MouseKind::Down,
@@ -80,7 +80,7 @@ fn tabs_emit_click_message() {
         }),
         &tree,
         &(),
-        &frust::FocusState::default(),
+        &frust::tui::FocusState::default(),
     );
     assert_eq!(outcome.messages, vec![Msg::Tab(1)]);
 }
@@ -92,7 +92,7 @@ fn cell_grid_renders_custom_cells_and_converts_coordinates() {
         .set_cell(1, 1, 'X', Style::default().fg(Color::Red));
     let area = Rect::new(2, 3, 4, 2);
     let tree = ViewTree::new(
-        frust::root::<(), Msg>(Rect::new(0, 0, 10, 6)).child(ViewNode::new(grid, area)),
+        frust::tui::root::<(), Msg>(Rect::new(0, 0, 10, 6)).child(ViewNode::new(grid, area)),
     );
 
     assert_eq!(

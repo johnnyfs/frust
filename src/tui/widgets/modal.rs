@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::{EventResult, FocusState, InputPolicy, Layer, UiEvent, View, ViewId};
+use crate::tui::{EventResult, FocusState, InputPolicy, Layer, UiEvent, View, ViewId};
 
 /// Modal overlay with optional close command.
 pub struct Modal<M> {

@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::{EventResult, FocusState, InputPolicy, MouseKind, UiEvent, View, ViewId};
+use crate::tui::{EventResult, FocusState, InputPolicy, MouseKind, UiEvent, View, ViewId};
 
 /// Messages emitted by `ScrollView`.
 #[derive(Debug, Clone)]

@@ -2,7 +2,7 @@
 
 use ratatui::layout::Rect;
 
-use crate::{EventResult, InputPolicy, Layer, UiEvent, View, ViewId, ViewNode};
+use crate::tui::{EventResult, InputPolicy, Layer, UiEvent, View, ViewId, ViewNode};
 
 /// Creates a root node for a composed frame.
 pub fn root<S: 'static, M: 'static>(area: Rect) -> ViewNode<S, M> {
@@ -41,7 +41,7 @@ impl<S, M> View<S, M> for RootView {
         _event: &UiEvent,
         _area: Rect,
         _state: &S,
-        _focus: &crate::FocusState,
+        _focus: &crate::tui::FocusState,
     ) -> EventResult<M> {
         EventResult::Ignored
     }

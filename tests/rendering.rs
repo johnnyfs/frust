@@ -1,4 +1,4 @@
-use frust::{
+use frust::tui::{
     EventResult, FocusState, InputPolicy, Layer, UiEvent, View, ViewId, ViewNode, ViewTree,
     render_tree,
 };
@@ -66,7 +66,7 @@ impl View<(), Msg> for OrderedView {
 #[test]
 fn render_order_is_layer_then_z_then_insertion_and_tooltip_is_last() {
     let tree = ViewTree::new(
-        frust::root(Rect::new(0, 0, 10, 5))
+        frust::tui::root(Rect::new(0, 0, 10, 5))
             .child(ViewNode::new(
                 OrderedView::new("base-a", Layer::Base, 0, 'a'),
                 Rect::new(0, 0, 1, 1),

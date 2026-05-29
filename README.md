@@ -1,23 +1,28 @@
 # frust
 
-`frust` is a small retained composition layer on top of Ratatui and Crossterm.
-It owns terminal UI mechanics that are easy to get subtly wrong: view-tree
-composition, rectangle ownership, z-ordering, deterministic render traversal,
-event routing, keyboard focus, mouse hit-testing, mouse capture, modal capture,
-scrollable primitives, custom rendering hooks, and message emission.
+`frust` is a terminal client application with an internal retained composition
+toolkit on top of Ratatui and Crossterm. The reusable toolkit lives under
+`frust::tui` and owns terminal UI mechanics that are easy to get subtly wrong:
+view-tree composition, rectangle ownership, z-ordering, deterministic render
+traversal, event routing, keyboard focus, mouse hit-testing, mouse capture,
+modal capture, scrollable primitives, custom rendering hooks, and message
+emission.
 
 ## What This Is
 
-This crate is a reusable UI foundation for applications that already own their
-state and semantics. A composed `ViewTree` lasts for one frame, can be rendered,
-hit-tested, routed, and inspected in tests, then is rebuilt from app state on the
-next frame.
+The `frust::tui` module is a reusable UI foundation for application code that
+already owns state and semantics. A composed `ViewTree` lasts for one frame, can
+be rendered, hit-tested, routed, and inspected in tests, then is rebuilt from app
+state on the next frame.
+
+The client-specific code lives in `frust::app` and `frust::ui`. The `ui` module
+is where purpose-built higher-level components should grow.
 
 ## What This Is Not
 
-This crate is not an application framework. It does not own business state,
-persistence, networking, async policy, or the event loop architecture. It does
-not hide Ratatui's `Frame`; custom views can draw directly with Ratatui.
+The `tui` toolkit is not an application framework. It does not own business
+state, persistence, networking, async policy, or the event loop architecture. It
+does not hide Ratatui's `Frame`; custom views can draw directly with Ratatui.
 
 ## Mental Model
 
@@ -70,9 +75,9 @@ mouse-capturing view can start capture, and mouse up releases it.
 
 ## Custom Rendering
 
-Implement `View<S, M>` directly or use `widgets::CustomView`. The render method
-receives `&mut ratatui::Frame`, the owned `Rect`, and `&S`, so advanced Ratatui
-drawing remains available.
+Implement `View<S, M>` directly or use `tui::widgets::CustomView`. The render
+method receives `&mut ratatui::Frame`, the owned `Rect`, and `&S`, so advanced
+Ratatui drawing remains available.
 
 ## Primitive Views
 
@@ -91,7 +96,7 @@ Included primitives:
 ## Minimal Example
 
 ```rust
-use frust::{
+use frust::tui::{
     InputPolicy, ViewNode, ViewTree, route_event, render_tree,
     widgets::Panel,
 };
@@ -107,7 +112,7 @@ enum Msg {
 
 fn compose(area: Rect) -> ViewTree<AppState, Msg> {
     ViewTree::new(
-        frust::root(area).child(ViewNode::new(
+        frust::tui::root(area).child(ViewNode::new(
             Panel::new("main")
                 .title("Main")
                 .input_policy(InputPolicy::Focusable),
@@ -117,9 +122,9 @@ fn compose(area: Rect) -> ViewTree<AppState, Msg> {
 }
 # fn demo(frame: &mut ratatui::Frame<'_>) {
 # let state = AppState;
-# let focus = frust::FocusState::default();
+# let focus = frust::tui::FocusState::default();
 let tree = compose(frame.area());
-let outcome = route_event(&frust::UiEvent::Tick, &tree, &state, &focus);
+let outcome = route_event(&frust::tui::UiEvent::Tick, &tree, &state, &focus);
 render_tree(&tree, frame, &state);
 # let _ = outcome;
 # }

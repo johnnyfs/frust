@@ -2,7 +2,7 @@
 
 use ratatui::{Frame, layout::Rect};
 
-use crate::{FocusState, Layer, UiEvent, ViewId};
+use crate::tui::{FocusState, Layer, UiEvent, ViewId};
 
 /// How a view participates in input routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

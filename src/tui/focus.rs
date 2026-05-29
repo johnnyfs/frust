@@ -1,6 +1,6 @@
 //! Focus and capture state.
 
-use crate::ViewId;
+use crate::tui::ViewId;
 
 /// Routing state owned by the application or runtime shell.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

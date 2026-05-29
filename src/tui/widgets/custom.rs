@@ -2,7 +2,7 @@
 
 use ratatui::{Frame, layout::Rect};
 
-use crate::{EventResult, FocusState, InputPolicy, Layer, UiEvent, View, ViewId};
+use crate::tui::{EventResult, FocusState, InputPolicy, Layer, UiEvent, View, ViewId};
 
 type RenderHook<S> = dyn Fn(&mut Frame<'_>, Rect, &S);
 type EventHook<S, M> = dyn Fn(&UiEvent, Rect, &S, &FocusState) -> EventResult<M>;

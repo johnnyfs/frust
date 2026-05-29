@@ -2,7 +2,7 @@
 
 use ratatui::Frame;
 
-use crate::ViewTree;
+use crate::tui::ViewTree;
 
 /// Renders a composed tree in deterministic layer/z/insertion order.
 pub fn render_tree<S: 'static, M: 'static>(

@@ -1,4 +1,4 @@
-use frust::{
+use frust::tui::{
     InputPolicy, Layer, Point, ViewNode, ViewTree,
     widgets::{CellGrid, Panel, Tooltip},
 };
@@ -29,7 +29,7 @@ fn compose(state: &AppState, area: Rect) -> ViewTree<AppState, Msg> {
         area.height.saturating_sub(2),
     );
 
-    let mut root = frust::root(area)
+    let mut root = frust::tui::root(area)
         .child(ViewNode::new(
             CellGrid::new("grid", grid_area.width, grid_area.height)
                 .input_policy(InputPolicy::CaptureMouse)

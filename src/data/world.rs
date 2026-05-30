@@ -15,10 +15,11 @@ pub enum TerrainType {
     Road,
     River,
     Pond,
+    Clearing,
 }
 
 /// All terrain variants in stable id order.
-pub const TERRAIN_TYPES: [TerrainType; 7] = [
+pub const TERRAIN_TYPES: [TerrainType; 8] = [
     TerrainType::Grass,
     TerrainType::Shrubbery,
     TerrainType::Forest,
@@ -26,6 +27,7 @@ pub const TERRAIN_TYPES: [TerrainType; 7] = [
     TerrainType::Road,
     TerrainType::River,
     TerrainType::Pond,
+    TerrainType::Clearing,
 ];
 
 impl TerrainType {
@@ -39,6 +41,7 @@ impl TerrainType {
             TerrainType::Road => 4,
             TerrainType::River => 5,
             TerrainType::Pond => 6,
+            TerrainType::Clearing => 7,
         }
     }
 
@@ -57,6 +60,7 @@ impl TerrainType {
             TerrainType::Road => "Road",
             TerrainType::River => "River",
             TerrainType::Pond => "Pond",
+            TerrainType::Clearing => "Clearing",
         }
     }
 }

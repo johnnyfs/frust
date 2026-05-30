@@ -434,7 +434,7 @@ fn collapsed_palette_renders_arrow_and_selected_tile() {
     let buffer = terminal.backend().buffer();
     assert_eq!(buffer.cell((4, 4)).unwrap().symbol(), ">");
     let selected = buffer.cell((6, 4)).unwrap();
-    assert_eq!(selected.symbol(), "=");
+    assert_eq!(selected.symbol(), ":");
     assert_eq!(selected.fg, Color::LightCyan);
 }
 
@@ -497,8 +497,9 @@ fn viewport_renders_all_terrain_glyphs_and_styles() {
         (2, 0, TerrainType::Forest, "#", Color::Rgb(0, 100, 0)),
         (3, 0, TerrainType::Path, ":", Color::Rgb(139, 69, 19)),
         (0, 1, TerrainType::Road, ":", Color::DarkGray),
-        (1, 1, TerrainType::River, "=", Color::LightCyan),
+        (1, 1, TerrainType::River, ":", Color::LightCyan),
         (2, 1, TerrainType::Pond, "~", Color::LightCyan),
+        (3, 1, TerrainType::Clearing, ":", Color::LightGreen),
     ];
 
     for (x, y, terrain, _, _) in cells {

@@ -26,8 +26,9 @@ pub fn terrain_marker(kind: TerrainType) -> (char, Color) {
         TerrainType::Forest => ('#', dark_green),
         TerrainType::Path => (':', brown),
         TerrainType::Road => (':', Color::DarkGray),
-        TerrainType::River => ('=', Color::LightCyan),
+        TerrainType::River => (':', Color::LightCyan),
         TerrainType::Pond => ('~', Color::LightCyan),
+        TerrainType::Clearing => (':', Color::LightGreen),
     }
 }
 

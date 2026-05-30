@@ -35,6 +35,7 @@ fn viewport_grid(state: &AppState, area: Rect) -> CellGrid {
     let world_view = state.world_view(size);
     let entity_view = state.entity_view(size);
     let destination = state.viewport_destination_cell(size);
+    let focus = state.viewport_focus_cell(size);
     let mut grid = CellGrid::new("viewport-grid", area.width, area.height)
         .input_policy(InputPolicy::None)
         .layer(Layer::Base);
@@ -63,6 +64,18 @@ fn viewport_grid(state: &AppState, area: Rect) -> CellGrid {
         }
     }
 
+    if let Some(focus) = focus
+        && focus.x >= 0
+        && focus.y >= 0
+        && focus.x < area.width as i32
+        && focus.y < area.height as i32
+    {
+        let x = focus.x as u16;
+        let y = focus.y as u16;
+        let (glyph, style) = rendered_cell(&world_view, &entity_view, x, y);
+        grid = grid.set_cell(x, y, glyph, style);
+    }
+
     if let Some(destination) = destination
         && destination.x >= 0
         && destination.y >= 0
@@ -83,7 +96,7 @@ fn viewport_grid(state: &AppState, area: Rect) -> CellGrid {
     {
         let x = cursor.x as u16;
         let y = cursor.y as u16;
-        let (glyph, style) = if Some(cursor) == destination {
+        let (glyph, style) = if Some(cursor) == destination || Some(cursor) == focus {
             rendered_cell(&world_view, &entity_view, x, y)
         } else {
             base_cell(&world_view, &entity_view, x, y)
@@ -167,6 +180,6 @@ fn handle_event(
 
     EventResult::Handled(vec![
         AppMessage::SetViewportCursor(Some(local)),
-        AppMessage::WalkFocusedEntityTo(destination),
+        AppMessage::ViewportClicked(destination),
     ])
 }

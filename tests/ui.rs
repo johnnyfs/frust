@@ -60,7 +60,7 @@ fn viewport_renders_shrubbery_as_dark_green_asterisks() {
 }
 
 #[test]
-fn viewport_renders_player_at_center_as_bright_white_at_sign() {
+fn viewport_renders_party_leader_at_center_as_colored_at_sign() {
     let state = AppState::default();
     let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
 
@@ -73,8 +73,32 @@ fn viewport_renders_player_at_center_as_bright_white_at_sign() {
 
     let cell = terminal.backend().buffer().cell((10, 4)).unwrap();
     assert_eq!(cell.symbol(), "@");
-    assert_eq!(cell.fg, Color::White);
+    assert_eq!(cell.fg, Color::Cyan);
+    assert_eq!(cell.bg, Color::Reset);
     assert!(cell.modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn battle_mode_renders_focus_character_with_white_box() {
+    let mut state = AppState::default();
+    frust::ecs::start_encounter(&mut state.ecs_world, frust::ecs::SQUIRREL_ENCOUNTER_ID);
+    let size = frust::data::grid::Vector { x: 80, y: 40 };
+    let mut terminal = Terminal::new(TestBackend::new(size.x as u16, size.y as u16)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let focus_cell = state.viewport_focus_cell(size).unwrap();
+    let cell = terminal
+        .backend()
+        .buffer()
+        .cell((focus_cell.x as u16, focus_cell.y as u16))
+        .unwrap();
+    assert_eq!(cell.bg, Color::White);
 }
 
 #[test]
@@ -116,9 +140,51 @@ fn viewport_left_click_emits_walk_destination() {
         outcome.messages,
         vec![
             AppMessage::SetViewportCursor(Some(frust::data::grid::Vector { x: 12, y: 5 })),
-            AppMessage::WalkFocusedEntityTo(frust::data::grid::Vector { x: 2, y: 1 })
+            AppMessage::ViewportClicked(frust::data::grid::Vector { x: 2, y: 1 })
         ]
     );
+}
+
+#[test]
+fn viewport_renders_squirrels_as_gray_rodents() {
+    let mut state = AppState::default();
+    state
+        .ecs_world
+        .resource_mut::<frust::ecs::ViewFocus>()
+        .center = frust::data::grid::Vector { x: 0, y: -24 };
+    let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let cell = terminal.backend().buffer().cell((8, 4)).unwrap();
+    assert_eq!(cell.symbol(), "r");
+    assert_eq!(cell.fg, Color::Gray);
+}
+
+#[test]
+fn battle_mode_tints_area_label_light_red() {
+    let mut state = AppState::default();
+    frust::ecs::start_encounter(&mut state.ecs_world, frust::ecs::SQUIRREL_ENCOUNTER_ID);
+    let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let area_name_cell = buffer
+        .content()
+        .iter()
+        .find(|cell| cell.symbol() == "B" && cell.fg == Color::LightRed);
+    assert!(area_name_cell.is_some());
 }
 
 #[test]

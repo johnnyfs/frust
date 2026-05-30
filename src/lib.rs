@@ -3,6 +3,7 @@
 pub mod app;
 pub mod data;
 pub mod ecs;
+pub mod rules;
 pub mod tui;
 pub mod ui;
 pub mod view;

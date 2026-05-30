@@ -11,8 +11,9 @@ use crate::{
         world::World,
     },
     ecs::{
-        ActiveWalkDestination, PendingWalkDestination, ViewFocus, movement_schedule,
-        spawn_initial_entities, sync_view_focus_system,
+        ActiveWalkDestination, CombatLog, ControlFocus, GameMode, PendingWalkDestination, Position,
+        ViewFocus, end_current_turn, movement_schedule, spawn_initial_entities,
+        sync_view_focus_system,
     },
     view::{
         coordinates::{local_to_world, world_to_local},
@@ -25,6 +26,8 @@ use crate::{
 pub const BRIDGEPORT_OUTSKIRTS: &str = "Bridgeport Outskirts";
 /// Fixed gameplay cadence for one walking step.
 pub const PLAYER_STEP_INTERVAL: Duration = Duration::from_millis(100);
+/// Local file used for combat/debug messages so the terminal UI never scrolls.
+pub const COMBAT_LOG_PATH: &str = "frust.log";
 
 /// Durable client state.
 pub struct AppState {
@@ -81,6 +84,30 @@ impl AppState {
         world_to_local(center, size, self.focused_walk_destination()?)
     }
 
+    pub fn viewport_focus_cell(&self, size: Vector) -> Option<Vector> {
+        if !self.is_turn_based() {
+            return None;
+        }
+
+        let center = self.ecs_world.resource::<ViewFocus>().center;
+        let focused = self.ecs_world.resource::<ControlFocus>().entity;
+        let position = self.ecs_world.get::<Position>(focused)?.0;
+        world_to_local(center, size, position)
+    }
+
+    pub fn is_turn_based(&self) -> bool {
+        *self.ecs_world.resource::<GameMode>() == GameMode::TurnBased
+    }
+
+    pub fn combat_log_lines(&self, limit: usize) -> Vec<&str> {
+        let log = self.ecs_world.resource::<CombatLog>();
+        log.lines().rev().take(limit).collect::<Vec<_>>()
+    }
+
+    pub fn enable_file_logging(&mut self, path: impl Into<std::path::PathBuf>) {
+        let _ = self.ecs_world.resource_mut::<CombatLog>().set_file(path);
+    }
+
     fn tick(&mut self) {
         self.movement_schedule.run(&mut self.ecs_world);
     }
@@ -89,19 +116,24 @@ impl AppState {
 /// Application messages emitted by UI routing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppMessage {
+    ViewportClicked(Vector),
     WalkFocusedEntityTo(Vector),
     SetViewportCursor(Option<Vector>),
+    EndTurn,
 }
 
 /// Applies a UI/application message to durable state.
 pub fn update(state: &mut AppState, message: AppMessage) {
     match message {
-        AppMessage::WalkFocusedEntityTo(destination) => {
+        AppMessage::ViewportClicked(destination) | AppMessage::WalkFocusedEntityTo(destination) => {
             state.ecs_world.resource_mut::<PendingWalkDestination>().0 = Some(destination);
             state.ecs_world.resource_mut::<ActiveWalkDestination>().0 = Some(destination);
         }
         AppMessage::SetViewportCursor(cursor) => {
             state.viewport_cursor = cursor;
+        }
+        AppMessage::EndTurn => {
+            end_current_turn(&mut state.ecs_world);
         }
     }
 }
@@ -119,6 +151,16 @@ pub fn should_quit(event: &Event) -> bool {
                 || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
         }
         _ => false,
+    }
+}
+
+/// Converts global raw input into application messages before UI routing.
+pub fn global_message(event: &Event) -> Option<AppMessage> {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press && key.code == KeyCode::Char(' ') => {
+            Some(AppMessage::EndTurn)
+        }
+        _ => None,
     }
 }
 

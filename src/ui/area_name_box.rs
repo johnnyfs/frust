@@ -1,4 +1,8 @@
-use ratatui::{layout::Rect, widgets::Paragraph};
+use ratatui::{
+    layout::Rect,
+    style::{Color, Style},
+    widgets::Paragraph,
+};
 
 use crate::{
     app::{AppMessage, AppState},
@@ -30,7 +34,15 @@ pub fn view(state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
     )
     .child(ViewNode::new(
         CustomView::new("area-name", |frame, area, state: &AppState| {
-            frame.render_widget(Paragraph::new(current_region_name(state)), area);
+            let style = if state.is_turn_based() {
+                Style::default().fg(Color::LightRed)
+            } else {
+                Style::default()
+            };
+            frame.render_widget(
+                Paragraph::new(current_region_name(state)).style(style),
+                area,
+            );
         }),
         text_rect,
     ))

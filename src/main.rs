@@ -25,6 +25,7 @@ fn main() -> io::Result<()> {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         let mut state = AppState::default();
+        state.enable_file_logging(app::COMBAT_LOG_PATH);
         let mut focus = FocusState::default();
         let mut last_step = Instant::now();
 
@@ -50,6 +51,10 @@ fn main() -> io::Result<()> {
             let raw_event = event::read()?;
             if app::should_quit(&raw_event) {
                 state.quit = true;
+                continue;
+            }
+            if let Some(message) = app::global_message(&raw_event) {
+                app::update(&mut state, message);
                 continue;
             }
 

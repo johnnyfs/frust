@@ -17,12 +17,12 @@ use crate::{
 /// Gaps between the panel and the screen edges.
 const RIGHT_GAP: u16 = 1;
 const TOP_GAP: u16 = 1;
-/// Trailing blank columns kept inside the right border.
-const TRAILING_PAD: u16 = 1;
+/// Fixed interior width, in cells; the panel only grows vertically.
+const INTERIOR_W: u16 = 24;
 
 /// Builds the inspector panel, or `None` when it should not be shown: when
 /// nothing is hovered, the hovered tile has nothing to report, or the screen
-/// is too small to hold the (content-sized) panel plus its edge gaps.
+/// is too small to hold the panel plus its edge gaps.
 pub fn view(state: &AppState, area: Rect) -> Option<ViewNode<AppState, AppMessage>> {
     state.viewport_cursor()?;
 
@@ -33,14 +33,13 @@ pub fn view(state: &AppState, area: Rect) -> Option<ViewNode<AppState, AppMessag
         y: area.height as i32,
     };
 
-    let (lines, content_width) = inspector_lines(state, size);
+    let lines = inspector_lines(state, size);
     if lines.is_empty() {
         return None;
     }
 
-    // Expand the panel to exactly fit its content, leaving one blank column
-    // after the widest line and bordering it on all sides.
-    let interior_w = content_width.saturating_add(TRAILING_PAD).max(1);
+    // Fixed width; the panel expands only vertically to fit its lines.
+    let interior_w = INTERIOR_W;
     let interior_h = lines.len() as u16;
     let panel_w = interior_w + 2;
     let panel_h = interior_h + 2;
@@ -71,7 +70,7 @@ pub fn view(state: &AppState, area: Rect) -> Option<ViewNode<AppState, AppMessag
             CustomView::new(
                 "tile-inspector-body",
                 move |frame, area, state: &AppState| {
-                    let (lines, _) = inspector_lines(state, size);
+                    let lines = inspector_lines(state, size);
                     frame.render_widget(Paragraph::new(Text::from(lines)), area);
                 },
             ),
@@ -80,17 +79,16 @@ pub fn view(state: &AppState, area: Rect) -> Option<ViewNode<AppState, AppMessag
     )
 }
 
-/// Builds the inspector's display lines and the widest line's column width.
-fn inspector_lines(state: &AppState, size: Vector) -> (Vec<Line<'static>>, u16) {
+/// Builds the inspector's display lines for the hovered tile.
+fn inspector_lines(state: &AppState, size: Vector) -> Vec<Line<'static>> {
     let Some(cursor) = state.viewport_cursor() else {
-        return (Vec::new(), 0);
+        return Vec::new();
     };
     let coord = state.viewport_cell_to_world(size, cursor);
     let inspector = state.inspector_at(coord);
 
     let detail_style = Style::default().fg(Color::DarkGray);
     let mut lines: Vec<Line> = Vec::new();
-    let mut width = 0u16;
 
     for (index, entry) in inspector.entries.iter().enumerate() {
         if index > 0 {
@@ -98,8 +96,6 @@ fn inspector_lines(state: &AppState, size: Vector) -> (Vec<Line<'static>>, u16) 
         }
         let (glyph, color) = entry.marker;
         // Heading: a leading space, the glyph enclosed in `[ ]`, then the name.
-        let heading_width = entry.name.chars().count() as u16 + 5;
-        width = width.max(heading_width);
         lines.push(Line::from(vec![
             Span::raw(" ["),
             Span::styled(glyph.to_string(), Style::default().fg(color)),
@@ -107,11 +103,9 @@ fn inspector_lines(state: &AppState, size: Vector) -> (Vec<Line<'static>>, u16) 
             Span::raw(entry.name.clone()),
         ]));
         for detail in &entry.details {
-            let detail_width = detail.chars().count() as u16 + 2;
-            width = width.max(detail_width);
             lines.push(Line::styled(format!("  {detail}"), detail_style));
         }
     }
 
-    (lines, width)
+    lines
 }

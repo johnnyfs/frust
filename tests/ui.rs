@@ -584,7 +584,7 @@ fn inspector_shows_terrain_and_signpost_on_hover() {
 }
 
 #[test]
-fn inspector_panel_shrinks_to_fit_its_widest_line() {
+fn inspector_panel_has_fixed_width_and_expands_vertically() {
     let mut state = AppState::default();
     let size = frust::data::grid::Vector { x: 80, y: 40 };
     frust::app::update(
@@ -594,10 +594,10 @@ fn inspector_panel_shrinks_to_fit_its_widest_line() {
     let tree = ui::compose(&state, Rect::new(0, 0, size.x as u16, size.y as u16));
     let panel = tree.find(&ViewId::new("tile-inspector")).unwrap();
 
-    // Widest line is the detail "  A wooden signpost" (19) plus one trailing
-    // blank and two borders => width 22. Four content lines (grass heading,
-    // blank, signpost heading, signpost detail) plus borders => height 6.
-    assert_eq!(panel.rect.width, 22);
+    // Fixed 24-cell interior plus two borders => width 26, regardless of content.
+    // Four content lines (grass heading, blank, signpost heading, signpost
+    // detail) plus borders => height 6.
+    assert_eq!(panel.rect.width, 26);
     assert_eq!(panel.rect.height, 6);
 }
 

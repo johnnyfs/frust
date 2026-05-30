@@ -1,7 +1,7 @@
 //! Application-owned state and update logic.
 
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
-use crate::data::world;
+use crate::data::{grid::ORIGIN, world::World};
 
 /// Initial area name shown by the client UI.
 pub const BRIDGEPORT_OUTSKIRTS: &str = "Bridgeport Outskirts";
@@ -18,8 +18,7 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            current_area_name: BRIDGEPORT_OUTSKIRTS,
-
+            world: World::new().with_region(BRIDGEPORT_OUTSKIRTS, ORIGIN),
             quit: false,
         }
     }

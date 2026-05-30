@@ -335,7 +335,10 @@ pub struct CreatureTemplate {
     pub armor_class: i32,
     pub attack_bonus: i32,
     pub damage: DamageDice,
-    pub weapon: WeaponKind,
+    /// Name of the creature's natural attack, e.g. "Bite", "Claws", "Slam".
+    pub attack_name: &'static str,
+    /// Reach of the attack in meters (1 for most Small/Medium creatures).
+    pub reach_m: i32,
 }
 
 pub fn squirrel_template() -> CreatureTemplate {
@@ -351,7 +354,8 @@ pub fn squirrel_template() -> CreatureTemplate {
         },
         max_hp: 1,
         speed_m: feet_to_meters(20),
-        weapon: WeaponKind::Bite,
+        attack_name: "Bite",
+        reach_m: 1,
         armor_class: 10,
         attack_bonus: 2,
         damage: DamageDice {
@@ -366,8 +370,7 @@ pub fn squirrel_template() -> CreatureTemplate {
 #[cfg(test)]
 mod tests {
     use super::{
-        Ability, ArmorKind, WeaponKind, ability_modifier, armor_class, feet_to_meters,
-        squirrel_template,
+        Ability, ArmorKind, ability_modifier, armor_class, feet_to_meters, squirrel_template,
     };
 
     #[test]
@@ -408,7 +411,8 @@ mod tests {
         assert_eq!(squirrel.speed_m, 6);
         assert_eq!(squirrel.armor_class, 10);
         assert_eq!(squirrel.attack_bonus, 2);
-        assert_eq!(squirrel.weapon, WeaponKind::Bite);
+        assert_eq!(squirrel.attack_name, "Bite");
+        assert_eq!(squirrel.reach_m, 1);
         assert_eq!(squirrel.abilities.modifier(Ability::Dexterity), 0);
     }
 }

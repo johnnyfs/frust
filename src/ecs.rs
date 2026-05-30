@@ -9,10 +9,11 @@ use bevy_ecs::prelude::*;
 use ratatui::style::Color;
 
 use crate::{
+    bestiary::{CreatureSpec, bestiary},
     data::grid::{ORIGIN, Vector},
     rules::{
         Ability, AbilityScores, ArmorKind, CharacterTemplate, ClassKind, DamageDice, SpeciesKind,
-        WeaponKind, proficiency_bonus, squirrel_template,
+        WeaponKind, proficiency_bonus,
     },
 };
 
@@ -401,9 +402,15 @@ pub fn spawn_initial_entities(world: &mut World) {
         .id();
     renderables.push(sign);
 
+    let squirrel = bestiary()
+        .into_iter()
+        .find(|spec| spec.template.name == "Squirrel")
+        .expect("bestiary contains the squirrel");
+    let squirrel_names = ["Squirrel A", "Squirrel B", "Squirrel C"];
     for (index, position) in SQUIRREL_POSITIONS.into_iter().enumerate() {
-        let squirrel = spawn_squirrel(world, index, position);
-        renderables.push(squirrel);
+        let name = squirrel_names[index.min(squirrel_names.len() - 1)];
+        let entity = spawn_creature(world, &squirrel, name, SQUIRREL_ENCOUNTER_ID, position);
+        renderables.push(entity);
     }
 
     let leader = party[0];
@@ -485,13 +492,21 @@ fn spawn_party_member(
         .id()
 }
 
-fn spawn_squirrel(world: &mut World, index: usize, position: Vector) -> Entity {
-    let template = squirrel_template();
-    let names = ["Squirrel A", "Squirrel B", "Squirrel C"];
+/// Spawn a hostile creature from a bestiary [`CreatureSpec`] at `position`, tagged
+/// into the given encounter group. `name` is the entity's display name (so callers can
+/// disambiguate, e.g. "Squirrel A", "Squirrel B").
+fn spawn_creature(
+    world: &mut World,
+    spec: &CreatureSpec,
+    name: &'static str,
+    encounter_id: u32,
+    position: Vector,
+) -> Entity {
+    let template = spec.template;
 
     world
         .spawn((
-            Name(names[index.min(names.len() - 1)]),
+            Name(name),
             Abilities(template.abilities),
             CombatStats {
                 armor_class: template.armor_class,
@@ -501,21 +516,19 @@ fn spawn_squirrel(world: &mut World, index: usize, position: Vector) -> Entity {
                 proficiency_bonus: 0,
             },
             Faction::Hostile,
-            EncounterGroup {
-                id: SQUIRREL_ENCOUNTER_ID,
-            },
+            EncounterGroup { id: encounter_id },
             HostileAi,
             Position(position),
             AttackProfile {
-                name: "Bite",
+                name: template.attack_name,
                 attack_bonus: template.attack_bonus,
                 damage: template.damage,
-                reach_m: 1,
+                reach_m: template.reach_m,
             },
             Renderable {
-                glyph: 'r',
-                color: Color::Gray,
-                bold: false,
+                glyph: spec.glyph,
+                color: spec.color,
+                bold: spec.bold,
                 z: 90,
             },
         ))

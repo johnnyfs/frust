@@ -62,6 +62,23 @@ fn viewport_grid(state: &AppState, area: Rect) -> CellGrid {
         }
     }
 
+    // Preview the pending right-drag box as the selected terrain, highlighted.
+    if let Some((anchor, end)) = state.edit_box() {
+        let (glyph, style) = terrain_cell(state.selected_terrain());
+        let preview_style = style.add_modifier(Modifier::REVERSED);
+        let (x0, x1) = (anchor.x.min(end.x), anchor.x.max(end.x));
+        let (y0, y1) = (anchor.y.min(end.y), anchor.y.max(end.y));
+        for world_y in y0..=y1 {
+            for world_x in x0..=x1 {
+                if let Some(local) =
+                    state.viewport_world_to_cell(size, Vector { x: world_x, y: world_y })
+                {
+                    grid = grid.set_cell(local.x as u16, local.y as u16, glyph, preview_style);
+                }
+            }
+        }
+    }
+
     for y in 0..area.height {
         for x in 0..area.width {
             if let Some(cell) = entity_view.get(x as usize, y as usize) {
@@ -201,6 +218,15 @@ fn handle_edit_event(
         y: mouse.position.y as i32,
     };
 
+    // World coordinate under the pointer, when it is inside the viewport.
+    let local_coord = CellGrid::screen_to_local(area, mouse.position).map(|local| {
+        let local = Vector {
+            x: local.x as i32,
+            y: local.y as i32,
+        };
+        (local, state.viewport_cell_to_world(size, local))
+    });
+
     match (mouse.kind, mouse.button) {
         (MouseKind::Down, Some(MouseButton::Middle)) => {
             EventResult::message(AppMessage::BeginEditPan(screen))
@@ -208,35 +234,51 @@ fn handle_edit_event(
         (MouseKind::Drag, Some(MouseButton::Middle)) => {
             EventResult::message(AppMessage::DragEditPan(screen))
         }
-        (MouseKind::Down, Some(MouseButton::Left))
-        | (MouseKind::Drag, Some(MouseButton::Left)) => {
-            let Some(local) = CellGrid::screen_to_local(area, mouse.position) else {
+        (MouseKind::Down, Some(MouseButton::Left)) => {
+            let Some((local, coord)) = local_coord else {
                 return EventResult::Ignored;
             };
-            let coord = state.viewport_cell_to_world(
-                size,
-                Vector {
-                    x: local.x as i32,
-                    y: local.y as i32,
-                },
-            );
             EventResult::Handled(vec![
-                AppMessage::SetViewportCursor(Some(Vector {
-                    x: local.x as i32,
-                    y: local.y as i32,
-                })),
+                AppMessage::SetViewportCursor(Some(local)),
                 AppMessage::PaintTerrain(coord),
             ])
         }
-        (MouseKind::Up, _) => EventResult::message(AppMessage::EndEditPan),
-        (MouseKind::Move, _) => {
-            let Some(local) = CellGrid::screen_to_local(area, mouse.position) else {
+        (MouseKind::Drag, Some(MouseButton::Left)) => {
+            let Some((local, coord)) = local_coord else {
                 return EventResult::Ignored;
             };
-            EventResult::message(AppMessage::SetViewportCursor(Some(Vector {
-                x: local.x as i32,
-                y: local.y as i32,
-            })))
+            EventResult::Handled(vec![
+                AppMessage::SetViewportCursor(Some(local)),
+                AppMessage::PaintTerrainLine(coord),
+            ])
+        }
+        (MouseKind::Down, Some(MouseButton::Right)) => {
+            let Some((local, coord)) = local_coord else {
+                return EventResult::Ignored;
+            };
+            EventResult::Handled(vec![
+                AppMessage::SetViewportCursor(Some(local)),
+                AppMessage::BeginEditBox(coord),
+            ])
+        }
+        (MouseKind::Drag, Some(MouseButton::Right)) => {
+            let Some((local, coord)) = local_coord else {
+                return EventResult::Ignored;
+            };
+            EventResult::Handled(vec![
+                AppMessage::SetViewportCursor(Some(local)),
+                AppMessage::ExtendEditBox(coord),
+            ])
+        }
+        (MouseKind::Up, Some(MouseButton::Right)) => {
+            EventResult::message(AppMessage::CommitEditBox)
+        }
+        (MouseKind::Up, _) => EventResult::message(AppMessage::EndEditStroke),
+        (MouseKind::Move, _) => {
+            let Some((local, _)) = local_coord else {
+                return EventResult::Ignored;
+            };
+            EventResult::message(AppMessage::SetViewportCursor(Some(local)))
         }
         _ => EventResult::Ignored,
     }

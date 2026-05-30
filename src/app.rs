@@ -60,6 +60,15 @@ pub struct AppState {
     region_center: Vector,
     /// Last pointer position captured during a middle-drag pan.
     pan_anchor: Option<Vector>,
+    /// Last world cell painted during the current left-drag stroke; used to
+    /// interpolate a line so fast mouse motion never skips tiles.
+    last_paint: Option<Vector>,
+    /// World cell where the current right-drag box started.
+    box_anchor: Option<Vector>,
+    /// Current far corner of the right-drag box (for preview and commit).
+    box_end: Option<Vector>,
+    /// Whether the right-drag has moved off its anchor (box) vs. stayed put (fill).
+    box_dragged: bool,
 }
 
 impl Default for AppState {
@@ -83,6 +92,10 @@ impl Default for AppState {
             region_path: None,
             region_center: ORIGIN,
             pan_anchor: None,
+            last_paint: None,
+            box_anchor: None,
+            box_end: None,
+            box_dragged: false,
         }
     }
 }
@@ -114,6 +127,11 @@ impl AppState {
 
     pub fn viewport_cell_to_world(&self, size: Vector, local: Vector) -> Vector {
         local_to_world(self.view_center(), size, local)
+    }
+
+    /// Converts a world coordinate to a viewport cell, if it is on screen.
+    pub fn viewport_world_to_cell(&self, size: Vector, coord: Vector) -> Option<Vector> {
+        world_to_local(self.view_center(), size, coord)
     }
 
     pub fn viewport_cursor(&self) -> Option<Vector> {
@@ -158,6 +176,15 @@ impl AppState {
         self.save_error.as_deref()
     }
 
+    /// The active right-drag box as `(anchor, end)` world coordinates, while a
+    /// box (not a flood-fill click) is being dragged. Used to render a preview.
+    pub fn edit_box(&self) -> Option<(Vector, Vector)> {
+        match (self.box_anchor, self.box_end) {
+            (Some(anchor), Some(end)) if self.box_dragged => Some((anchor, end)),
+            _ => None,
+        }
+    }
+
     /// Loads (or creates) a region resource and installs it as the world.
     pub fn load_region_from(&mut self, path: impl Into<PathBuf>) -> Result<(), RegionError> {
         let path = path.into();
@@ -177,7 +204,7 @@ impl AppState {
         if self.edit_mode {
             self.edit_mode = false;
             self.edit_focus = None;
-            self.pan_anchor = None;
+            self.end_stroke();
         } else {
             self.edit_mode = true;
             self.edit_focus = Some(self.ecs_world.resource::<ViewFocus>().center);
@@ -189,6 +216,63 @@ impl AppState {
         if self.ecs_world.resource_mut::<World>().set_terrain(coord, kind) {
             self.dirty = true;
         }
+        self.last_paint = Some(coord);
+    }
+
+    /// Paints a continuous line from the last painted cell to `coord` so a fast
+    /// left-drag never skips tiles, then advances the stroke cursor.
+    fn paint_terrain_line(&mut self, coord: Vector) {
+        let from = self.last_paint.unwrap_or(coord);
+        let kind = self.selected_terrain;
+        let mut changed = false;
+        for cell in line_points(from, coord) {
+            if self.ecs_world.resource_mut::<World>().set_terrain(cell, kind) {
+                changed = true;
+            }
+        }
+        if changed {
+            self.dirty = true;
+        }
+        self.last_paint = Some(coord);
+    }
+
+    fn begin_box(&mut self, coord: Vector) {
+        self.box_anchor = Some(coord);
+        self.box_end = Some(coord);
+        self.box_dragged = false;
+    }
+
+    fn extend_box(&mut self, coord: Vector) {
+        if let Some(anchor) = self.box_anchor {
+            self.box_end = Some(coord);
+            if coord != anchor {
+                self.box_dragged = true;
+            }
+        }
+    }
+
+    /// Commits the right-button gesture: a moved box fills its rectangle, while
+    /// a click that never moved flood-fills the tile under it.
+    fn commit_box(&mut self) {
+        let Some(anchor) = self.box_anchor else {
+            self.end_stroke();
+            return;
+        };
+        let end = self.box_end.unwrap_or(anchor);
+        let kind = self.selected_terrain;
+        let changed = if self.box_dragged {
+            self.ecs_world
+                .resource_mut::<World>()
+                .fill_rect(anchor, end, kind)
+        } else {
+            self.ecs_world
+                .resource_mut::<World>()
+                .flood_fill(anchor, kind)
+        };
+        if changed {
+            self.dirty = true;
+        }
+        self.end_stroke();
     }
 
     fn begin_pan(&mut self, point: Vector) {
@@ -216,8 +300,13 @@ impl AppState {
         self.pan_anchor = Some(point);
     }
 
-    fn end_pan(&mut self) {
+    /// Ends any in-progress paint/pan/box capture, clearing transient cursors.
+    fn end_stroke(&mut self) {
         self.pan_anchor = None;
+        self.last_paint = None;
+        self.box_anchor = None;
+        self.box_end = None;
+        self.box_dragged = false;
     }
 
     fn save_region(&mut self) {
@@ -271,8 +360,16 @@ pub enum AppMessage {
     ToggleEditMode,
     /// Save the loaded region (edit mode only).
     SaveRegion,
-    /// Paint the selected terrain at a world coordinate.
+    /// Paint the selected terrain at a world coordinate (left-button down).
     PaintTerrain(Vector),
+    /// Paint a line from the last painted cell to this world coordinate (drag).
+    PaintTerrainLine(Vector),
+    /// Begin a right-drag box / flood-fill gesture at a world coordinate.
+    BeginEditBox(Vector),
+    /// Extend the right-drag box to a world coordinate.
+    ExtendEditBox(Vector),
+    /// Commit the right-button gesture (box fill, or flood fill on a click).
+    CommitEditBox,
     /// Select the active terrain in the palette.
     SelectTerrain(TerrainType),
     /// Collapse/expand the terrain palette.
@@ -281,8 +378,8 @@ pub enum AppMessage {
     BeginEditPan(Vector),
     /// Continue a middle-drag pan to a screen point.
     DragEditPan(Vector),
-    /// End the current paint/pan capture.
-    EndEditPan,
+    /// End the current paint/pan/box capture.
+    EndEditStroke,
 }
 
 /// Applies a UI/application message to durable state.
@@ -309,6 +406,18 @@ pub fn update(state: &mut AppState, message: AppMessage) {
         AppMessage::PaintTerrain(coord) => {
             state.paint_terrain(coord);
         }
+        AppMessage::PaintTerrainLine(coord) => {
+            state.paint_terrain_line(coord);
+        }
+        AppMessage::BeginEditBox(coord) => {
+            state.begin_box(coord);
+        }
+        AppMessage::ExtendEditBox(coord) => {
+            state.extend_box(coord);
+        }
+        AppMessage::CommitEditBox => {
+            state.commit_box();
+        }
         AppMessage::SelectTerrain(terrain) => {
             state.selected_terrain = terrain;
         }
@@ -321,10 +430,39 @@ pub fn update(state: &mut AppState, message: AppMessage) {
         AppMessage::DragEditPan(point) => {
             state.drag_pan(point);
         }
-        AppMessage::EndEditPan => {
-            state.end_pan();
+        AppMessage::EndEditStroke => {
+            state.end_stroke();
         }
     }
+}
+
+/// Returns the integer cells on the line from `from` to `to` (inclusive),
+/// using Bresenham's algorithm so a fast drag paints every crossed tile.
+fn line_points(from: Vector, to: Vector) -> Vec<Vector> {
+    let dx = (to.x - from.x).abs();
+    let dy = -(to.y - from.y).abs();
+    let sx = if from.x < to.x { 1 } else { -1 };
+    let sy = if from.y < to.y { 1 } else { -1 };
+    let mut error = dx + dy;
+    let mut x = from.x;
+    let mut y = from.y;
+    let mut points = Vec::new();
+    loop {
+        points.push(Vector { x, y });
+        if x == to.x && y == to.y {
+            break;
+        }
+        let double_error = 2 * error;
+        if double_error >= dy {
+            error += dy;
+            x += sx;
+        }
+        if double_error <= dx {
+            error += dx;
+            y += sy;
+        }
+    }
+    points
 }
 
 /// Advances one gameplay tick.
@@ -617,7 +755,104 @@ mod tests {
 
         assert_eq!(state.edit_focus, Some(Vector { x: 3, y: -5 }));
 
-        update(&mut state, AppMessage::EndEditPan);
+        update(&mut state, AppMessage::EndEditStroke);
         assert_eq!(state.pan_anchor, None);
+    }
+
+    #[test]
+    fn left_drag_paints_a_continuous_line_without_skipping_tiles() {
+        let mut state = AppState::default();
+        update(&mut state, AppMessage::ToggleEditMode);
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Road));
+
+        // Press at the origin, then a fast drag jumps several tiles away.
+        update(&mut state, AppMessage::PaintTerrain(ORIGIN));
+        update(
+            &mut state,
+            AppMessage::PaintTerrainLine(Vector { x: 4, y: 2 }),
+        );
+
+        // Every cell on the line from (0,0) to (4,2) is painted, none skipped.
+        for cell in super::line_points(ORIGIN, Vector { x: 4, y: 2 }) {
+            assert_eq!(
+                state
+                    .ecs_world
+                    .resource::<World>()
+                    .terrain_at(cell)
+                    .map(|terrain| terrain.kind()),
+                Some(TerrainType::Road),
+                "missing painted tile at {cell:?}"
+            );
+        }
+        assert!(state.dirty);
+    }
+
+    #[test]
+    fn right_click_without_drag_flood_fills() {
+        let mut state = AppState::default();
+        update(&mut state, AppMessage::ToggleEditMode);
+
+        // Paint a small all-grass pocket surrounded by road so the fill is bounded.
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Road));
+        update(
+            &mut state,
+            AppMessage::BeginEditBox(Vector { x: -2, y: -2 }),
+        );
+        update(
+            &mut state,
+            AppMessage::ExtendEditBox(Vector { x: 2, y: 2 }),
+        );
+        update(&mut state, AppMessage::CommitEditBox);
+        // Carve a grass hole back into the middle.
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Grass));
+        update(&mut state, AppMessage::BeginEditBox(ORIGIN));
+        update(&mut state, AppMessage::ExtendEditBox(Vector { x: 1, y: 0 }));
+        update(&mut state, AppMessage::CommitEditBox);
+
+        // Flood fill the grass pocket with forest via a right click (no drag).
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Forest));
+        update(&mut state, AppMessage::BeginEditBox(ORIGIN));
+        update(&mut state, AppMessage::CommitEditBox);
+
+        let world = state.ecs_world.resource::<World>();
+        assert_eq!(
+            world.terrain_at(ORIGIN).map(|t| t.kind()),
+            Some(TerrainType::Forest)
+        );
+        // The surrounding road is untouched by the bounded fill.
+        assert_eq!(
+            world.terrain_at(Vector { x: 2, y: 2 }).map(|t| t.kind()),
+            Some(TerrainType::Road)
+        );
+    }
+
+    #[test]
+    fn right_drag_fills_a_box() {
+        let mut state = AppState::default();
+        update(&mut state, AppMessage::ToggleEditMode);
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Pond));
+
+        update(&mut state, AppMessage::BeginEditBox(Vector { x: -1, y: -1 }));
+        update(&mut state, AppMessage::ExtendEditBox(Vector { x: 1, y: 1 }));
+        // A box is previewed mid-drag.
+        assert_eq!(
+            state.edit_box(),
+            Some((Vector { x: -1, y: -1 }, Vector { x: 1, y: 1 }))
+        );
+        update(&mut state, AppMessage::CommitEditBox);
+
+        let world = state.ecs_world.resource::<World>();
+        for y in -1..=1 {
+            for x in -1..=1 {
+                assert_eq!(
+                    world.terrain_at(Vector { x, y }).map(|t| t.kind()),
+                    Some(TerrainType::Pond),
+                    "box cell ({x}, {y}) not filled"
+                );
+            }
+        }
+        // Capture state is cleared after commit.
+        assert_eq!(state.edit_box(), None);
+        assert!(state.dirty);
     }
 }

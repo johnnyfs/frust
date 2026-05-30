@@ -119,6 +119,12 @@ pub struct World {
     regions: SparseGrid<Region>,
 }
 
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl World {
     pub fn new() -> Self {
         Self {
@@ -179,6 +185,68 @@ impl World {
             return false;
         };
         region.set_terrain_at(x, y, kind)
+    }
+
+    /// Paints the selected terrain over the inclusive world-coordinate rectangle
+    /// spanned by `a` and `b`. Cells outside any loaded region are skipped.
+    /// Returns true when at least one cell was painted.
+    pub fn fill_rect(&mut self, a: Vector, b: Vector, kind: TerrainType) -> bool {
+        let (x0, x1) = (a.x.min(b.x), a.x.max(b.x));
+        let (y0, y1) = (a.y.min(b.y), a.y.max(b.y));
+        let mut changed = false;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if self.set_terrain(Vector { x, y }, kind) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// Flood fills the contiguous run of like terrain reachable from `coord`
+    /// (4-connected, bounded to its region) with `kind`. No-op when the start
+    /// is outside a region or already matches `kind`. Returns true on change.
+    pub fn flood_fill(&mut self, coord: Vector, kind: TerrainType) -> bool {
+        let region_center = region_center_for(coord);
+        let Some((start_x, start_y)) = local_tile_for(coord, region_center) else {
+            return false;
+        };
+        let Some(region) = self.regions.get_mut(&region_center) else {
+            return false;
+        };
+        let Some(target) = region.terrain_at(start_x, start_y).map(|terrain| terrain.kind()) else {
+            return false;
+        };
+        if target == kind {
+            return false;
+        }
+
+        let width = region.terrain().width();
+        let height = region.terrain().height();
+        let mut stack = vec![(start_x, start_y)];
+        let mut changed = false;
+        while let Some((x, y)) = stack.pop() {
+            match region.terrain_at(x, y).map(|terrain| terrain.kind()) {
+                Some(current) if current == target => {}
+                _ => continue,
+            }
+            region.set_terrain_at(x, y, kind);
+            changed = true;
+            if x > 0 {
+                stack.push((x - 1, y));
+            }
+            if x + 1 < width {
+                stack.push((x + 1, y));
+            }
+            if y > 0 {
+                stack.push((x, y - 1));
+            }
+            if y + 1 < height {
+                stack.push((x, y + 1));
+            }
+        }
+        changed
     }
 }
 
@@ -242,5 +310,71 @@ fn local_tile_for(coord: Vector, region_center: Vector) -> Option<(usize, usize)
         Some((x as usize, y as usize))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::grid::ORIGIN;
+
+    fn all_grass_world() -> World {
+        let mut world = World::new();
+        let terrain = Grid::new(
+            WORLD_REGION_WIDTH,
+            WORLD_REGION_HEIGHT,
+            Terrain::new(TerrainType::Grass),
+        );
+        world.insert_region(ORIGIN, Region::new("test", "Test", terrain));
+        world
+    }
+
+    fn kind_at(world: &World, x: i32, y: i32) -> Option<TerrainType> {
+        world.terrain_at(Vector { x, y }).map(|terrain| terrain.kind())
+    }
+
+    #[test]
+    fn fill_rect_paints_inclusive_rectangle_in_any_corner_order() {
+        let mut world = all_grass_world();
+        assert!(world.fill_rect(
+            Vector { x: 2, y: 3 },
+            Vector { x: 0, y: 1 },
+            TerrainType::Road
+        ));
+        for y in 1..=3 {
+            for x in 0..=2 {
+                assert_eq!(kind_at(&world, x, y), Some(TerrainType::Road));
+            }
+        }
+        assert_eq!(kind_at(&world, 3, 3), Some(TerrainType::Grass));
+    }
+
+    #[test]
+    fn flood_fill_is_bounded_by_differing_terrain() {
+        let mut world = all_grass_world();
+        // Ring of road around the origin pocket.
+        world.fill_rect(Vector { x: -1, y: -1 }, Vector { x: 1, y: 1 }, TerrainType::Road);
+        world.set_terrain(ORIGIN, TerrainType::Grass);
+
+        assert!(world.flood_fill(ORIGIN, TerrainType::Forest));
+        assert_eq!(kind_at(&world, 0, 0), Some(TerrainType::Forest));
+        // The road ring stops the fill.
+        assert_eq!(kind_at(&world, 1, 1), Some(TerrainType::Road));
+        // Grass beyond the ring is untouched.
+        assert_eq!(kind_at(&world, 5, 5), Some(TerrainType::Grass));
+    }
+
+    #[test]
+    fn flood_fill_noop_when_target_matches_selection() {
+        let mut world = all_grass_world();
+        assert!(!world.flood_fill(ORIGIN, TerrainType::Grass));
+    }
+
+    #[test]
+    fn fills_outside_a_region_are_noops() {
+        let mut world = all_grass_world();
+        let far = Vector { x: 100_000, y: 0 };
+        assert!(!world.flood_fill(far, TerrainType::Road));
+        assert!(!world.fill_rect(far, far, TerrainType::Road));
     }
 }

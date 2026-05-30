@@ -27,6 +27,24 @@ fn enter_edit_mode(state: &mut AppState) {
     app::update(state, AppMessage::ToggleEditMode);
 }
 
+fn mouse_event(kind: MouseKind, button: Option<MouseButton>, position: Point) -> UiEvent {
+    UiEvent::Mouse(MouseEvent {
+        position,
+        kind,
+        button,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    })
+}
+
+/// Focus state with the viewport holding the mouse capture, as the router
+/// establishes after a mouse-down in edit mode.
+fn viewport_capture() -> FocusState {
+    FocusState {
+        mouse_capture: Some(ViewId::new("viewport")),
+        ..FocusState::default()
+    }
+}
+
 #[test]
 fn composed_ui_uses_viewport_instead_of_printable_background() {
     let state = AppState::default();
@@ -701,4 +719,93 @@ fn party_status_hidden_in_edit_mode() {
     let area = Rect::new(0, 0, 40, 40);
     let tree = ui::compose(&state, area);
     assert!(tree.find(&ViewId::new("party-status")).is_none());
+}
+
+#[test]
+fn edit_mode_left_down_paints_instead_of_walking() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    let area = Rect::new(0, 0, 40, 20);
+    let tree = ui::compose(&state, area);
+
+    let outcome = route_event(
+        &mouse_event(MouseKind::Down, Some(MouseButton::Left), Point::new(20, 10)),
+        &tree,
+        &state,
+        &FocusState::default(),
+    );
+    assert!(
+        outcome
+            .messages
+            .iter()
+            .any(|m| matches!(m, AppMessage::PaintTerrain(_)))
+    );
+    assert!(
+        !outcome
+            .messages
+            .iter()
+            .any(|m| matches!(m, AppMessage::ViewportClicked(_)))
+    );
+}
+
+#[test]
+fn edit_mode_left_drag_routes_to_paint_line() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    let area = Rect::new(0, 0, 40, 20);
+    let tree = ui::compose(&state, area);
+
+    let outcome = route_event(
+        &mouse_event(MouseKind::Drag, Some(MouseButton::Left), Point::new(25, 12)),
+        &tree,
+        &state,
+        &viewport_capture(),
+    );
+    assert!(
+        outcome
+            .messages
+            .iter()
+            .any(|m| matches!(m, AppMessage::PaintTerrainLine(_)))
+    );
+}
+
+#[test]
+fn edit_mode_right_drag_gesture_boxes_then_commits() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    let area = Rect::new(0, 0, 40, 20);
+    let tree = ui::compose(&state, area);
+
+    // Point clear of the palette overlay (x 4..15, y 4..12) and the area label.
+    let down = route_event(
+        &mouse_event(MouseKind::Down, Some(MouseButton::Right), Point::new(30, 15)),
+        &tree,
+        &state,
+        &FocusState::default(),
+    );
+    assert!(
+        down.messages
+            .iter()
+            .any(|m| matches!(m, AppMessage::BeginEditBox(_)))
+    );
+
+    let drag = route_event(
+        &mouse_event(MouseKind::Drag, Some(MouseButton::Right), Point::new(14, 9)),
+        &tree,
+        &state,
+        &viewport_capture(),
+    );
+    assert!(
+        drag.messages
+            .iter()
+            .any(|m| matches!(m, AppMessage::ExtendEditBox(_)))
+    );
+
+    let up = route_event(
+        &mouse_event(MouseKind::Up, Some(MouseButton::Right), Point::new(14, 9)),
+        &tree,
+        &state,
+        &viewport_capture(),
+    );
+    assert!(up.messages.contains(&AppMessage::CommitEditBox));
 }

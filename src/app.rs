@@ -69,6 +69,10 @@ pub struct AppState {
     box_end: Option<Vector>,
     /// Whether the right-drag has moved off its anchor (box) vs. stayed put (fill).
     box_dragged: bool,
+    /// Terrain changes made by the current gesture, as `(coord, prior terrain)`.
+    current_edit: Vec<(Vector, TerrainType)>,
+    /// Completed edit gestures, newest last, for undo.
+    undo_stack: Vec<Vec<(Vector, TerrainType)>>,
 }
 
 impl Default for AppState {
@@ -96,6 +100,8 @@ impl Default for AppState {
             box_anchor: None,
             box_end: None,
             box_dragged: false,
+            current_edit: Vec::new(),
+            undo_stack: Vec::new(),
         }
     }
 }
@@ -213,7 +219,8 @@ impl AppState {
 
     fn paint_terrain(&mut self, coord: Vector) {
         let kind = self.selected_terrain;
-        if self.ecs_world.resource_mut::<World>().set_terrain(coord, kind) {
+        if let Some(old) = self.ecs_world.resource_mut::<World>().replace_terrain(coord, kind) {
+            self.current_edit.push((coord, old));
             self.dirty = true;
         }
         self.last_paint = Some(coord);
@@ -224,14 +231,11 @@ impl AppState {
     fn paint_terrain_line(&mut self, coord: Vector) {
         let from = self.last_paint.unwrap_or(coord);
         let kind = self.selected_terrain;
-        let mut changed = false;
         for cell in line_points(from, coord) {
-            if self.ecs_world.resource_mut::<World>().set_terrain(cell, kind) {
-                changed = true;
+            if let Some(old) = self.ecs_world.resource_mut::<World>().replace_terrain(cell, kind) {
+                self.current_edit.push((cell, old));
+                self.dirty = true;
             }
-        }
-        if changed {
-            self.dirty = true;
         }
         self.last_paint = Some(coord);
     }
@@ -260,16 +264,17 @@ impl AppState {
         };
         let end = self.box_end.unwrap_or(anchor);
         let kind = self.selected_terrain;
-        let changed = if self.box_dragged {
+        let edits = if self.box_dragged {
             self.ecs_world
                 .resource_mut::<World>()
-                .fill_rect(anchor, end, kind)
+                .fill_rect_recording(anchor, end, kind)
         } else {
             self.ecs_world
                 .resource_mut::<World>()
-                .flood_fill(anchor, kind)
+                .flood_fill_recording(anchor, kind)
         };
-        if changed {
+        if !edits.is_empty() {
+            self.current_edit.extend(edits);
             self.dirty = true;
         }
         self.end_stroke();
@@ -301,12 +306,34 @@ impl AppState {
     }
 
     /// Ends any in-progress paint/pan/box capture, clearing transient cursors.
+    /// Any terrain changes made during the gesture become one undo entry.
     fn end_stroke(&mut self) {
+        if !self.current_edit.is_empty() {
+            self.undo_stack.push(std::mem::take(&mut self.current_edit));
+        }
         self.pan_anchor = None;
         self.last_paint = None;
         self.box_anchor = None;
         self.box_end = None;
         self.box_dragged = false;
+    }
+
+    /// Reverts the most recent edit gesture, restoring each touched cell's prior
+    /// terrain. No-op when there is nothing to undo.
+    fn undo(&mut self) {
+        let Some(edits) = self.undo_stack.pop() else {
+            return;
+        };
+        // Restore in reverse so overlapping cells land on their oldest value.
+        for (coord, kind) in edits.into_iter().rev() {
+            self.ecs_world.resource_mut::<World>().replace_terrain(coord, kind);
+        }
+        self.dirty = true;
+    }
+
+    /// Whether there is a recorded edit gesture available to undo.
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
     }
 
     fn save_region(&mut self) {
@@ -360,6 +387,8 @@ pub enum AppMessage {
     ToggleEditMode,
     /// Save the loaded region (edit mode only).
     SaveRegion,
+    /// Undo the last terrain edit (edit mode only).
+    Undo,
     /// Paint the selected terrain at a world coordinate (left-button down).
     PaintTerrain(Vector),
     /// Paint a line from the last painted cell to this world coordinate (drag).
@@ -401,6 +430,11 @@ pub fn update(state: &mut AppState, message: AppMessage) {
         AppMessage::SaveRegion => {
             if state.edit_mode {
                 state.save_region();
+            }
+        }
+        AppMessage::Undo => {
+            if state.edit_mode {
+                state.undo();
             }
         }
         AppMessage::PaintTerrain(coord) => {
@@ -488,6 +522,7 @@ pub fn global_message(event: &Event) -> Option<AppMessage> {
             KeyCode::Char(' ') => Some(AppMessage::EndTurn),
             KeyCode::Char('e') => Some(AppMessage::ToggleEditMode),
             KeyCode::Char('s') => Some(AppMessage::SaveRegion),
+            KeyCode::Char('u') => Some(AppMessage::Undo),
             _ => None,
         },
         _ => None,
@@ -854,5 +889,80 @@ mod tests {
         // Capture state is cleared after commit.
         assert_eq!(state.edit_box(), None);
         assert!(state.dirty);
+    }
+
+    #[test]
+    fn u_key_undoes_only_in_edit_mode() {
+        assert_eq!(
+            global_message(&key_event(KeyCode::Char('u'))),
+            Some(AppMessage::Undo)
+        );
+
+        let mut state = AppState::default();
+        let original = state
+            .ecs_world
+            .resource::<World>()
+            .terrain_at(ORIGIN)
+            .map(|t| t.kind())
+            .unwrap();
+
+        // Outside edit mode, undo is ignored (nothing recorded anyway).
+        update(&mut state, AppMessage::Undo);
+
+        update(&mut state, AppMessage::ToggleEditMode);
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Forest));
+        // A full left-stroke: down, drag, up.
+        update(&mut state, AppMessage::PaintTerrain(ORIGIN));
+        update(&mut state, AppMessage::PaintTerrainLine(Vector { x: 3, y: 0 }));
+        update(&mut state, AppMessage::EndEditStroke);
+        assert!(state.can_undo());
+        assert_eq!(
+            state.ecs_world.resource::<World>().terrain_at(ORIGIN).map(|t| t.kind()),
+            Some(TerrainType::Forest)
+        );
+
+        update(&mut state, AppMessage::Undo);
+        assert!(!state.can_undo());
+        for cell in super::line_points(ORIGIN, Vector { x: 3, y: 0 }) {
+            assert_eq!(
+                state.ecs_world.resource::<World>().terrain_at(cell).map(|t| t.kind()),
+                Some(original),
+                "stroke cell {cell:?} not restored by undo"
+            );
+        }
+    }
+
+    #[test]
+    fn undo_reverts_box_and_flood_fills_as_single_steps() {
+        let mut state = AppState::default();
+        update(&mut state, AppMessage::ToggleEditMode);
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Pond));
+
+        // One box gesture.
+        update(&mut state, AppMessage::BeginEditBox(Vector { x: -1, y: -1 }));
+        update(&mut state, AppMessage::ExtendEditBox(Vector { x: 1, y: 1 }));
+        update(&mut state, AppMessage::CommitEditBox);
+        // One flood gesture over the pond pocket.
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Road));
+        update(&mut state, AppMessage::BeginEditBox(ORIGIN));
+        update(&mut state, AppMessage::CommitEditBox);
+        assert_eq!(
+            state.ecs_world.resource::<World>().terrain_at(ORIGIN).map(|t| t.kind()),
+            Some(TerrainType::Road)
+        );
+
+        // Undo the flood: pocket returns to pond.
+        update(&mut state, AppMessage::Undo);
+        assert_eq!(
+            state.ecs_world.resource::<World>().terrain_at(ORIGIN).map(|t| t.kind()),
+            Some(TerrainType::Pond)
+        );
+        // Undo the box: corner returns to its original terrain.
+        update(&mut state, AppMessage::Undo);
+        assert_ne!(
+            state.ecs_world.resource::<World>().terrain_at(Vector { x: 1, y: 1 }).map(|t| t.kind()),
+            Some(TerrainType::Pond)
+        );
+        assert!(!state.can_undo());
     }
 }

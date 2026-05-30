@@ -187,52 +187,90 @@ impl World {
         region.set_terrain_at(x, y, kind)
     }
 
+    /// Paints a single cell, returning its previous terrain when the value
+    /// actually changed (so edits can be recorded for undo). Returns `None`
+    /// outside any region or when the cell already holds `kind`.
+    pub fn replace_terrain(&mut self, coord: Vector, kind: TerrainType) -> Option<TerrainType> {
+        let region_center = region_center_for(coord);
+        let (x, y) = local_tile_for(coord, region_center)?;
+        let region = self.regions.get_mut(&region_center)?;
+        let old = region.terrain_at(x, y)?.kind();
+        if old == kind {
+            return None;
+        }
+        region.set_terrain_at(x, y, kind);
+        Some(old)
+    }
+
     /// Paints the selected terrain over the inclusive world-coordinate rectangle
-    /// spanned by `a` and `b`. Cells outside any loaded region are skipped.
-    /// Returns true when at least one cell was painted.
-    pub fn fill_rect(&mut self, a: Vector, b: Vector, kind: TerrainType) -> bool {
+    /// spanned by `a` and `b`, returning each changed cell with its prior
+    /// terrain. Cells outside any loaded region are skipped.
+    pub fn fill_rect_recording(
+        &mut self,
+        a: Vector,
+        b: Vector,
+        kind: TerrainType,
+    ) -> Vec<(Vector, TerrainType)> {
         let (x0, x1) = (a.x.min(b.x), a.x.max(b.x));
         let (y0, y1) = (a.y.min(b.y), a.y.max(b.y));
-        let mut changed = false;
+        let mut edits = Vec::new();
         for y in y0..=y1 {
             for x in x0..=x1 {
-                if self.set_terrain(Vector { x, y }, kind) {
-                    changed = true;
+                let coord = Vector { x, y };
+                if let Some(old) = self.replace_terrain(coord, kind) {
+                    edits.push((coord, old));
                 }
             }
         }
-        changed
+        edits
+    }
+
+    /// Convenience wrapper: returns true when at least one cell was painted.
+    pub fn fill_rect(&mut self, a: Vector, b: Vector, kind: TerrainType) -> bool {
+        !self.fill_rect_recording(a, b, kind).is_empty()
     }
 
     /// Flood fills the contiguous run of like terrain reachable from `coord`
-    /// (4-connected, bounded to its region) with `kind`. No-op when the start
-    /// is outside a region or already matches `kind`. Returns true on change.
-    pub fn flood_fill(&mut self, coord: Vector, kind: TerrainType) -> bool {
+    /// (4-connected, bounded to its region) with `kind`, returning each changed
+    /// cell with its prior terrain. Empty when the start is outside a region or
+    /// already matches `kind`.
+    pub fn flood_fill_recording(
+        &mut self,
+        coord: Vector,
+        kind: TerrainType,
+    ) -> Vec<(Vector, TerrainType)> {
         let region_center = region_center_for(coord);
         let Some((start_x, start_y)) = local_tile_for(coord, region_center) else {
-            return false;
+            return Vec::new();
         };
         let Some(region) = self.regions.get_mut(&region_center) else {
-            return false;
+            return Vec::new();
         };
         let Some(target) = region.terrain_at(start_x, start_y).map(|terrain| terrain.kind()) else {
-            return false;
+            return Vec::new();
         };
         if target == kind {
-            return false;
+            return Vec::new();
         }
 
+        let (left, top) = region_origin(region_center);
         let width = region.terrain().width();
         let height = region.terrain().height();
         let mut stack = vec![(start_x, start_y)];
-        let mut changed = false;
+        let mut edits = Vec::new();
         while let Some((x, y)) = stack.pop() {
             match region.terrain_at(x, y).map(|terrain| terrain.kind()) {
                 Some(current) if current == target => {}
                 _ => continue,
             }
             region.set_terrain_at(x, y, kind);
-            changed = true;
+            edits.push((
+                Vector {
+                    x: left + x as i32,
+                    y: top + y as i32,
+                },
+                target,
+            ));
             if x > 0 {
                 stack.push((x - 1, y));
             }
@@ -246,7 +284,12 @@ impl World {
                 stack.push((x, y + 1));
             }
         }
-        changed
+        edits
+    }
+
+    /// Convenience wrapper: returns true when at least one cell was filled.
+    pub fn flood_fill(&mut self, coord: Vector, kind: TerrainType) -> bool {
+        !self.flood_fill_recording(coord, kind).is_empty()
     }
 }
 
@@ -298,6 +341,14 @@ fn region_axis_center(value: i32, size: usize) -> i32 {
     let size = size as i32;
     let half = size / 2;
     value.saturating_add(half).div_euclid(size) * size
+}
+
+/// Top-left world coordinate of the region centered at `region_center`.
+fn region_origin(region_center: Vector) -> (i32, i32) {
+    (
+        region_center.x - WORLD_REGION_WIDTH as i32 / 2,
+        region_center.y - WORLD_REGION_HEIGHT as i32 / 2,
+    )
 }
 
 fn local_tile_for(coord: Vector, region_center: Vector) -> Option<(usize, usize)> {

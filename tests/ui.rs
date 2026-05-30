@@ -568,15 +568,63 @@ fn inspector_shows_terrain_and_signpost_on_hover() {
         .unwrap();
 
     let rows = buffer_rows(&terminal);
-    // Terrain entry followed by the signpost entry and its flavor text.
-    assert!(rows.iter().any(|row| row.contains("Grass")));
-    assert!(rows.iter().any(|row| row.contains("Signpost")));
+    // Terrain entry followed by the signpost entry and its flavor text, with
+    // each marker glyph enclosed in brackets and indented one space.
+    assert!(rows.iter().any(|row| row.contains(" [.] Grass")));
+    assert!(rows.iter().any(|row| row.contains(" [|] Signpost")));
     assert!(rows.iter().any(|row| row.contains("A wooden signpost")));
 
-    // The panel sits one column off the right edge and one row off the top.
+    // The content-sized panel opens its top border one row off the top edge.
     let buffer = terminal.backend().buffer();
-    let panel_left = size.x as u16 - (28 + 1);
-    assert_eq!(buffer.cell((panel_left, 1)).unwrap().symbol(), "┌");
+    assert!(
+        (0..size.x as u16).any(|x| buffer.cell((x, 1)).unwrap().symbol() == "┌"),
+        "inspector top-left corner not found on the top border row"
+    );
+}
+
+#[test]
+fn inspector_panel_shrinks_to_fit_its_widest_line() {
+    let mut state = AppState::default();
+    let size = frust::data::grid::Vector { x: 80, y: 40 };
+    frust::app::update(
+        &mut state,
+        AppMessage::SetViewportCursor(Some(frust::data::grid::Vector { x: 44, y: 21 })),
+    );
+    let tree = ui::compose(&state, Rect::new(0, 0, size.x as u16, size.y as u16));
+    let panel = tree.find(&ViewId::new("tile-inspector")).unwrap();
+
+    // Widest line is the detail "  A wooden signpost" (19) plus one trailing
+    // blank and two borders => width 22. Four content lines (grass heading,
+    // blank, signpost heading, signpost detail) plus borders => height 6.
+    assert_eq!(panel.rect.width, 22);
+    assert_eq!(panel.rect.height, 6);
+}
+
+#[test]
+fn inspector_border_turns_red_in_battle() {
+    let mut state = AppState::default();
+    frust::ecs::start_encounter(&mut state.ecs_world, frust::ecs::SQUIRREL_ENCOUNTER_ID);
+    let size = frust::data::grid::Vector { x: 80, y: 40 };
+    // Hover the focused combatant's tile so the inspector reports something.
+    let focus = state.viewport_focus_cell(size).unwrap();
+    frust::app::update(&mut state, AppMessage::SetViewportCursor(Some(focus)));
+
+    let mut terminal = Terminal::new(TestBackend::new(size.x as u16, size.y as u16)).unwrap();
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let corner = (0..size.x as u16)
+        .find_map(|x| {
+            let cell = buffer.cell((x, 1)).unwrap();
+            (cell.symbol() == "┌").then_some(cell)
+        })
+        .expect("inspector top-left corner present in battle");
+    assert_eq!(corner.fg, Color::LightRed);
 }
 
 #[test]

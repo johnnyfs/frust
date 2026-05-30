@@ -181,7 +181,7 @@ fn viewport_renders_squirrels_as_gray_rodents() {
 }
 
 #[test]
-fn battle_mode_tints_area_label_light_red() {
+fn battle_mode_tints_area_label_border_light_red_not_text() {
     let mut state = AppState::default();
     frust::ecs::start_encounter(&mut state.ecs_world, frust::ecs::SQUIRREL_ENCOUNTER_ID);
     let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
@@ -194,11 +194,16 @@ fn battle_mode_tints_area_label_light_red() {
         .unwrap();
 
     let buffer = terminal.backend().buffer();
-    let area_name_cell = buffer
-        .content()
-        .iter()
-        .find(|cell| cell.symbol() == "B" && cell.fg == Color::LightRed);
-    assert!(area_name_cell.is_some());
+    // The centered "Bridgeport Outskirts" label box sits near the top (y=1),
+    // well above the party boxes (y>=8), so its border corner is unambiguous.
+    let corner = buffer.cell((8, 1)).unwrap();
+    assert_eq!(corner.symbol(), "┌");
+    assert_eq!(corner.fg, Color::LightRed);
+
+    // The label text itself is not tinted.
+    let label = buffer.cell((10, 2)).unwrap();
+    assert_eq!(label.symbol(), "B");
+    assert_ne!(label.fg, Color::LightRed);
 }
 
 #[test]
@@ -339,6 +344,13 @@ fn buffer_rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
                 .map(|x| buffer.cell((x, y)).unwrap().symbol().to_string())
                 .collect::<String>()
         })
+        .collect()
+}
+
+fn read_string(terminal: &Terminal<TestBackend>, x: u16, y: u16, len: u16) -> String {
+    let buffer = terminal.backend().buffer();
+    (x..x + len)
+        .map(|column| buffer.cell((column, y)).unwrap().symbol().to_string())
         .collect()
 }
 
@@ -562,4 +574,131 @@ fn inspector_hidden_in_edit_mode() {
     let area = Rect::new(0, 0, 80, 40);
     let tree = ui::compose(&state, area);
     assert!(tree.find(&ViewId::new("tile-inspector")).is_none());
+}
+
+#[test]
+fn party_status_box_renders_at_left_edge_top() {
+    let state = AppState::default();
+    let mut terminal = Terminal::new(TestBackend::new(40, 40)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let corner = terminal.backend().buffer().cell((2, 8)).unwrap();
+    assert_eq!(corner.symbol(), "┌");
+}
+
+#[test]
+fn second_party_box_starts_one_row_after_first_box_bottom() {
+    let state = AppState::default();
+    let mut terminal = Terminal::new(TestBackend::new(40, 40)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    // First box: top border at y=8, bottom border at y=13, one empty gap row at y=14.
+    assert_eq!(buffer.cell((2, 13)).unwrap().symbol(), "└");
+    // The gap row carries no box border at the border column.
+    let gap = buffer.cell((2, 14)).unwrap().symbol().to_string();
+    assert!(!["┌", "└", "│"].contains(&gap.as_str()));
+    // Second box top border one row after the gap.
+    assert_eq!(buffer.cell((2, 15)).unwrap().symbol(), "┌");
+}
+
+#[test]
+fn first_party_member_name_renders_in_cyan() {
+    let state = AppState::default();
+    let mut terminal = Terminal::new(TestBackend::new(40, 40)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let cell = terminal.backend().buffer().cell((4, 9)).unwrap();
+    assert_eq!(cell.symbol(), "M");
+    assert_eq!(cell.fg, Color::Cyan);
+    assert_eq!(read_string(&terminal, 4, 9, 4), "Mara");
+}
+
+#[test]
+fn explore_party_box_movement_row_is_blank() {
+    let state = AppState::default();
+    let mut terminal = Terminal::new(TestBackend::new(40, 40)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    // Movement row of the first box (box top y=8, movement row y=12).
+    assert_eq!(terminal.backend().buffer().cell((4, 12)).unwrap().symbol(), " ");
+}
+
+#[test]
+fn battle_party_box_borders_render_light_red() {
+    let mut state = AppState::default();
+    frust::ecs::start_encounter(&mut state.ecs_world, frust::ecs::SQUIRREL_ENCOUNTER_ID);
+    let mut terminal = Terminal::new(TestBackend::new(40, 40)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let corner = buffer.cell((2, 8)).unwrap();
+    assert_eq!(corner.symbol(), "┌");
+    assert_eq!(corner.fg, Color::LightRed);
+
+    // Only the outline is tinted: the class-line text stays untinted.
+    let class = buffer.cell((4, 10)).unwrap();
+    assert_eq!(class.symbol(), "L");
+    assert_ne!(class.fg, Color::LightRed);
+}
+
+#[test]
+fn battle_active_member_movement_renders_spent_over_remaining() {
+    let mut state = AppState::default();
+    frust::ecs::start_encounter(&mut state.ecs_world, frust::ecs::SQUIRREL_ENCOUNTER_ID);
+    let leader = state.ecs_world.resource::<frust::ecs::PartyRoster>().members[0];
+    state.ecs_world.entity_mut(leader).insert(frust::ecs::ActionState {
+        remaining_movement: 4,
+        has_attacked: false,
+    });
+    let mut terminal = Terminal::new(TestBackend::new(40, 40)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    // Mara has speed 9; with 4m remaining she has spent 5m.
+    assert_eq!(read_string(&terminal, 4, 12, 8), "Mv 5/4 m");
+}
+
+#[test]
+fn party_status_hidden_in_edit_mode() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    let area = Rect::new(0, 0, 40, 40);
+    let tree = ui::compose(&state, area);
+    assert!(tree.find(&ViewId::new("party-status")).is_none());
 }

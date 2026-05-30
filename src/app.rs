@@ -20,6 +20,7 @@ use crate::{
         coordinates::{local_to_world, world_to_local},
         entityview::{EntityView, from_ecs},
         inspectorview::{InspectorView, from_ecs_at},
+        party_status::PartyStatusView,
         worldview::{WorldView, from_world},
     },
 };
@@ -105,6 +106,10 @@ impl AppState {
 
     pub fn inspector_at(&self, coord: Vector) -> InspectorView {
         from_ecs_at(&self.ecs_world, coord)
+    }
+
+    pub fn party_status_view(&self) -> PartyStatusView {
+        crate::view::party_status::from_ecs(&self.ecs_world)
     }
 
     pub fn viewport_cell_to_world(&self, size: Vector, local: Vector) -> Vector {

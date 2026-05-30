@@ -34,17 +34,8 @@ pub fn view(state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
 
 /// Glyph and style used to render a terrain tile.
 pub(crate) fn terrain_cell(kind: TerrainType) -> (char, Style) {
-    let dark_green = Color::Rgb(0, 100, 0);
-    let brown = Color::Rgb(139, 69, 19);
-    match kind {
-        TerrainType::Grass => ('.', Style::default().fg(Color::LightGreen)),
-        TerrainType::Shrubbery => ('*', Style::default().fg(dark_green)),
-        TerrainType::Forest => ('#', Style::default().fg(dark_green)),
-        TerrainType::Path => (':', Style::default().fg(brown)),
-        TerrainType::Road => (':', Style::default().fg(Color::DarkGray)),
-        TerrainType::River => ('=', Style::default().fg(Color::LightCyan)),
-        TerrainType::Pond => ('~', Style::default().fg(Color::LightCyan)),
-    }
+    let (glyph, color) = crate::view::worldview::terrain_marker(kind);
+    (glyph, Style::default().fg(color))
 }
 
 fn viewport_grid(state: &AppState, area: Rect) -> CellGrid {

@@ -19,6 +19,7 @@ use crate::{
     view::{
         coordinates::{local_to_world, world_to_local},
         entityview::{EntityView, from_ecs},
+        inspectorview::{InspectorView, from_ecs_at},
         worldview::{WorldView, from_world},
     },
 };
@@ -100,6 +101,10 @@ impl AppState {
 
     pub fn entity_view(&self, size: Vector) -> EntityView {
         from_ecs(&self.ecs_world, self.view_center(), size)
+    }
+
+    pub fn inspector_at(&self, coord: Vector) -> InspectorView {
+        from_ecs_at(&self.ecs_world, coord)
     }
 
     pub fn viewport_cell_to_world(&self, size: Vector, local: Vector) -> Vector {

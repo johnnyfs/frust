@@ -1,3 +1,5 @@
+use ratatui::style::Color;
+
 use crate::data::{
     grid::{Grid, Vector},
     world::{TerrainType, World},
@@ -11,6 +13,22 @@ pub enum WorldViewTerrain {
     Blank,
     /// A terrain tile from a loaded region.
     Filled(TerrainType),
+}
+
+/// Display glyph and color for a terrain tile. Single source of truth shared by
+/// the viewport renderer and the tile inspector.
+pub fn terrain_marker(kind: TerrainType) -> (char, Color) {
+    let dark_green = Color::Rgb(0, 100, 0);
+    let brown = Color::Rgb(139, 69, 19);
+    match kind {
+        TerrainType::Grass => ('.', Color::LightGreen),
+        TerrainType::Shrubbery => ('*', dark_green),
+        TerrainType::Forest => ('#', dark_green),
+        TerrainType::Path => (':', brown),
+        TerrainType::Road => (':', Color::DarkGray),
+        TerrainType::River => ('=', Color::LightCyan),
+        TerrainType::Pond => ('~', Color::LightCyan),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

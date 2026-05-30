@@ -329,6 +329,19 @@ fn viewport_destination_box_preserves_entity_glyph_underneath() {
     assert_eq!(cell.bg, Color::White);
 }
 
+/// Collects each buffer row into a string for substring assertions.
+fn buffer_rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
+    let buffer = terminal.backend().buffer();
+    let area = *buffer.area();
+    (0..area.height)
+        .map(|y| {
+            (0..area.width)
+                .map(|x| buffer.cell((x, y)).unwrap().symbol().to_string())
+                .collect::<String>()
+        })
+        .collect()
+}
+
 #[test]
 fn palette_appears_only_in_edit_mode() {
     let mut state = AppState::default();
@@ -488,4 +501,65 @@ fn viewport_renders_all_terrain_glyphs_and_styles() {
         assert_eq!(cell.symbol(), glyph, "glyph at ({x}, {y})");
         assert_eq!(cell.fg, color, "color at ({x}, {y})");
     }
+}
+
+#[test]
+fn inspector_hidden_until_a_tile_is_hovered() {
+    let state = AppState::default();
+    let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    // No mouse hover yet: the inspector panel is not composed at all.
+    assert!(buffer_rows(&terminal).iter().all(|row| !row.contains("Grass")));
+}
+
+#[test]
+fn inspector_shows_terrain_and_signpost_on_hover() {
+    let mut state = AppState::default();
+    let size = frust::data::grid::Vector { x: 80, y: 40 };
+    // Local viewport cell over the signpost at world (4, 1): origin is
+    // center - size/2 = (-40, -20), so local = world - origin = (44, 21).
+    frust::app::update(
+        &mut state,
+        AppMessage::SetViewportCursor(Some(frust::data::grid::Vector { x: 44, y: 21 })),
+    );
+
+    let mut terminal = Terminal::new(TestBackend::new(size.x as u16, size.y as u16)).unwrap();
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let rows = buffer_rows(&terminal);
+    // Terrain entry followed by the signpost entry and its flavor text.
+    assert!(rows.iter().any(|row| row.contains("Grass")));
+    assert!(rows.iter().any(|row| row.contains("Signpost")));
+    assert!(rows.iter().any(|row| row.contains("A wooden signpost")));
+
+    // The panel sits one column off the right edge and one row off the top.
+    let buffer = terminal.backend().buffer();
+    let panel_left = size.x as u16 - (28 + 1);
+    assert_eq!(buffer.cell((panel_left, 1)).unwrap().symbol(), "┌");
+}
+
+#[test]
+fn inspector_hidden_in_edit_mode() {
+    let mut state = AppState::default();
+    // Hover a tile so the inspector would normally appear...
+    frust::app::update(
+        &mut state,
+        AppMessage::SetViewportCursor(Some(frust::data::grid::Vector { x: 44, y: 21 })),
+    );
+    // ...then enter edit mode, which must suppress it.
+    enter_edit_mode(&mut state);
+    let area = Rect::new(0, 0, 80, 40);
+    let tree = ui::compose(&state, area);
+    assert!(tree.find(&ViewId::new("tile-inspector")).is_none());
 }

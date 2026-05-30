@@ -1,14 +1,16 @@
 use ratatui::{layout::Rect, widgets::Paragraph};
 
 use crate::{
-    app::{AppMessage, AppState}, data::grid::Vector, tui::{
+    app::{AppMessage, AppState},
+    data::grid::Vector,
+    tui::{
         ViewNode,
         widgets::{CustomView, Panel},
-    }
+    },
 };
 
 pub fn view(state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
-    let current_area_name: &'static str = state.world.region_at(Vector { x: 0, y: 0 }).name();
+    let current_area_name = current_region_name(state);
     let text_width = current_area_name.len().try_into().unwrap_or(u16::MAX);
     let panel_width = text_width.saturating_add(4).min(area.width);
     let panel_height = 3.min(area.height);
@@ -28,9 +30,12 @@ pub fn view(state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
     )
     .child(ViewNode::new(
         CustomView::new("area-name", |frame, area, state: &AppState| {
-            let current_area_name: &'static str = state.world.region_at(Vector { x: 0, y: 0 }).name();
-            frame.render_widget(Paragraph::new(current_area_name), area);
+            frame.render_widget(Paragraph::new(current_region_name(state)), area);
         }),
         text_rect,
     ))
+}
+
+fn current_region_name(state: &AppState) -> &'static str {
+    state.world_view(Vector { x: 1, y: 1 }).current_region_name
 }

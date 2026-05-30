@@ -1,7 +1,13 @@
 //! Application-owned state and update logic.
 
+use crate::{
+    data::{
+        grid::{ORIGIN, Vector},
+        world::World,
+    },
+    view::worldview::{WorldView, from_world},
+};
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
-use crate::data::{grid::ORIGIN, world::World};
 
 /// Initial area name shown by the client UI.
 pub const BRIDGEPORT_OUTSKIRTS: &str = "Bridgeport Outskirts";
@@ -9,7 +15,7 @@ pub const BRIDGEPORT_OUTSKIRTS: &str = "Bridgeport Outskirts";
 /// Durable client state.
 #[derive(Debug)]
 pub struct AppState {
-    /// Current area display name.
+    /// Durable world state.
     pub world: World,
     /// Whether the terminal client should exit.
     pub quit: bool,
@@ -21,6 +27,12 @@ impl Default for AppState {
             world: World::new().with_region(BRIDGEPORT_OUTSKIRTS, ORIGIN),
             quit: false,
         }
+    }
+}
+
+impl AppState {
+    pub fn world_view(&self, size: Vector) -> WorldView {
+        from_world(&self.world, ORIGIN, size)
     }
 }
 

@@ -43,6 +43,11 @@ fn main() -> io::Result<()> {
                 continue;
             }
 
+            if let Some(message) = app::message_for_event(&raw_event) {
+                app::update(&mut state, message);
+                continue;
+            }
+
             let size = terminal.size()?;
             let area = Rect::new(0, 0, size.width, size.height);
             let tree = ui::compose(&state, area);

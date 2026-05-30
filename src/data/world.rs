@@ -1,11 +1,13 @@
 use crate::data::grid::{Grid, SparseGrid, Vector};
 
-pub const WORLD_REGION_WIDTH: usize = 1024;
-pub const WORLD_REGION_HEIGHT: usize = 1024;
+pub const WORLD_REGION_WIDTH: usize = 320;
+pub const WORLD_REGION_HEIGHT: usize = 192;
+const SHRUBBERY_DENSITY: i64 = 17;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerrainType {
     Grass,
+    Shrubbery,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -38,12 +40,14 @@ impl Region {
 #[derive(Debug)]
 pub struct World {
     regions: SparseGrid<Region>,
+    player_position: Vector,
 }
 
 impl World {
     pub fn new() -> Self {
         Self {
             regions: SparseGrid::new(),
+            player_position: Vector { x: 0, y: 0 },
         }
     }
 
@@ -52,13 +56,9 @@ impl World {
             centered_at,
             Region {
                 name: name,
-                terrain: Grid::new(
-                    WORLD_REGION_WIDTH,
-                    WORLD_REGION_HEIGHT,
-                    Terrain {
-                        kind: TerrainType::Grass,
-                    },
-                ),
+                terrain: Grid::from_fn(WORLD_REGION_WIDTH, WORLD_REGION_HEIGHT, |x, y| Terrain {
+                    kind: terrain_kind_for_tile(centered_at, x, y),
+                }),
             },
         );
         self
@@ -77,6 +77,35 @@ impl World {
         let region = self.region_at(region_center)?;
         let (x, y) = local_tile_for(coord, region_center)?;
         region.terrain_at(x, y)
+    }
+
+    pub fn player_position(&self) -> Vector {
+        self.player_position
+    }
+
+    pub fn move_player_by(&mut self, delta: Vector) {
+        self.player_position = Vector {
+            x: self.player_position.x.saturating_add(delta.x),
+            y: self.player_position.y.saturating_add(delta.y),
+        };
+    }
+}
+
+fn terrain_kind_for_tile(region_center: Vector, x: usize, y: usize) -> TerrainType {
+    let left = region_center.x as i64 - WORLD_REGION_WIDTH as i64 / 2;
+    let top = region_center.y as i64 - WORLD_REGION_HEIGHT as i64 / 2;
+    let world_x = left + x as i64;
+    let world_y = top + y as i64;
+    let scatter = world_x
+        .wrapping_mul(13)
+        .wrapping_add(world_y.wrapping_mul(7))
+        .wrapping_add(6)
+        .rem_euclid(SHRUBBERY_DENSITY);
+
+    if scatter == 0 {
+        TerrainType::Shrubbery
+    } else {
+        TerrainType::Grass
     }
 }
 

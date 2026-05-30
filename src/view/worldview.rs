@@ -7,6 +7,7 @@ use crate::data::{
 pub enum WorldViewTerrain {
     Blank,
     Grass,
+    Shrubbery,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +28,7 @@ pub fn from_world(world: &World, center: Vector, size: Vector) -> WorldView {
         let coord = sample_coord(center, width, height, x, y);
         match world.terrain_at(coord).map(|terrain| terrain.kind()) {
             Some(TerrainType::Grass) => WorldViewTerrain::Grass,
+            Some(TerrainType::Shrubbery) => WorldViewTerrain::Shrubbery,
             None => WorldViewTerrain::Blank,
         }
     });
@@ -56,16 +58,24 @@ mod tests {
     #[test]
     fn origin_region_samples_grass_and_name() {
         let world = World::new().with_region("Bridgeport Outskirts", ORIGIN);
-        let view = from_world(&world, ORIGIN, Vector { x: 3, y: 2 });
+        let view = from_world(&world, ORIGIN, Vector { x: 40, y: 20 });
 
         assert_eq!(view.current_region_name, "Bridgeport Outskirts");
-        assert_eq!(view.terrain.width(), 3);
-        assert_eq!(view.terrain.height(), 2);
+        assert_eq!(view.terrain.width(), 40);
+        assert_eq!(view.terrain.height(), 20);
+        let mut grass_count = 0;
+        let mut shrubbery_count = 0;
         for y in 0..view.terrain.height() {
             for x in 0..view.terrain.width() {
-                assert_eq!(view.terrain.get(x, y), Some(&WorldViewTerrain::Grass));
+                match view.terrain.get(x, y) {
+                    Some(WorldViewTerrain::Grass) => grass_count += 1,
+                    Some(WorldViewTerrain::Shrubbery) => shrubbery_count += 1,
+                    other => panic!("expected region terrain, got {other:?}"),
+                }
             }
         }
+        assert!(grass_count > 0);
+        assert!(shrubbery_count > 0);
     }
 
     #[test]

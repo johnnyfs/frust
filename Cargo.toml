@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.29"
+bevy_ecs = { version = "0.18.0", default-features = false, features = ["std"] }

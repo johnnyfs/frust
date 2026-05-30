@@ -1,3 +1,5 @@
+use bevy_ecs::prelude::Resource;
+
 use crate::data::grid::{Grid, SparseGrid, Vector};
 
 pub const WORLD_REGION_WIDTH: usize = 320;
@@ -37,17 +39,15 @@ impl Region {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Resource)]
 pub struct World {
     regions: SparseGrid<Region>,
-    player_position: Vector,
 }
 
 impl World {
     pub fn new() -> Self {
         Self {
             regions: SparseGrid::new(),
-            player_position: Vector { x: 0, y: 0 },
         }
     }
 
@@ -77,17 +77,6 @@ impl World {
         let region = self.region_at(region_center)?;
         let (x, y) = local_tile_for(coord, region_center)?;
         region.terrain_at(x, y)
-    }
-
-    pub fn player_position(&self) -> Vector {
-        self.player_position
-    }
-
-    pub fn move_player_by(&mut self, delta: Vector) {
-        self.player_position = Vector {
-            x: self.player_position.x.saturating_add(delta.x),
-            y: self.player_position.y.saturating_add(delta.y),
-        };
     }
 }
 

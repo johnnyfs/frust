@@ -1,10 +1,10 @@
 use std::{
     io::{self},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crossterm::{
-    event::{self},
+    event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -20,31 +20,36 @@ fn main() -> io::Result<()> {
 
     let result: io::Result<()> = (|| {
         enable_raw_mode()?;
-        execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
 
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         let mut state = AppState::default();
         let mut focus = FocusState::default();
+        let mut last_step = Instant::now();
 
         while !state.quit {
+            let now = Instant::now();
+            while now.duration_since(last_step) >= app::PLAYER_STEP_INTERVAL {
+                app::tick(&mut state);
+                last_step += app::PLAYER_STEP_INTERVAL;
+            }
+
             terminal.draw(|frame| {
                 let tree = ui::compose(&state, frame.area());
                 render_tree(&tree, frame, &state);
             })?;
 
-            if !event::poll(Duration::from_millis(250))? {
+            let poll_timeout = app::PLAYER_STEP_INTERVAL
+                .saturating_sub(last_step.elapsed())
+                .min(Duration::from_millis(250));
+            if !event::poll(poll_timeout)? {
                 continue;
             }
 
             let raw_event = event::read()?;
             if app::should_quit(&raw_event) {
                 state.quit = true;
-                continue;
-            }
-
-            if let Some(message) = app::message_for_event(&raw_event) {
-                app::update(&mut state, message);
                 continue;
             }
 
@@ -64,7 +69,7 @@ fn main() -> io::Result<()> {
         Ok(())
     })();
 
-    let _ = execute!(io::stdout(), LeaveAlternateScreen);
+    let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
     let _ = disable_raw_mode();
 
     result

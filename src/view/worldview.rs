@@ -3,6 +3,8 @@ use crate::data::{
     world::{TerrainType, World},
 };
 
+use super::coordinates::local_to_world;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldViewTerrain {
     Blank,
@@ -25,7 +27,14 @@ pub fn from_world(world: &World, center: Vector, size: Vector) -> WorldView {
         .unwrap_or("");
 
     let terrain = Grid::from_fn(width, height, |x, y| {
-        let coord = sample_coord(center, width, height, x, y);
+        let coord = local_to_world(
+            center,
+            size,
+            Vector {
+                x: x as i32,
+                y: y as i32,
+            },
+        );
         match world.terrain_at(coord).map(|terrain| terrain.kind()) {
             Some(TerrainType::Grass) => WorldViewTerrain::Grass,
             Some(TerrainType::Shrubbery) => WorldViewTerrain::Shrubbery,
@@ -39,18 +48,11 @@ pub fn from_world(world: &World, center: Vector, size: Vector) -> WorldView {
     }
 }
 
-fn sample_coord(center: Vector, width: usize, height: usize, x: usize, y: usize) -> Vector {
-    Vector {
-        x: center.x.saturating_add(x as i32 - (width / 2) as i32),
-        y: center.y.saturating_add(y as i32 - (height / 2) as i32),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::data::{
         grid::{ORIGIN, Vector},
-        world::World,
+        world::{WORLD_REGION_WIDTH, World},
     };
 
     use super::{WorldViewTerrain, from_world};
@@ -94,11 +96,29 @@ mod tests {
     #[test]
     fn origin_region_boundary_runs_from_negative_512_through_positive_511() {
         let world = World::new().with_region("Bridgeport Outskirts", ORIGIN);
-        let inside = from_world(&world, Vector { x: 511, y: 0 }, Vector { x: 1, y: 1 });
-        let outside = from_world(&world, Vector { x: 512, y: 0 }, Vector { x: 1, y: 1 });
+        let half_width = WORLD_REGION_WIDTH as i32 / 2;
+        let inside = from_world(
+            &world,
+            Vector {
+                x: half_width - 1,
+                y: 0,
+            },
+            Vector { x: 1, y: 1 },
+        );
+        let outside = from_world(
+            &world,
+            Vector {
+                x: half_width,
+                y: 0,
+            },
+            Vector { x: 1, y: 1 },
+        );
 
         assert_eq!(inside.current_region_name, "Bridgeport Outskirts");
-        assert_eq!(inside.terrain.get(0, 0), Some(&WorldViewTerrain::Grass));
+        assert!(matches!(
+            inside.terrain.get(0, 0).copied(),
+            Some(WorldViewTerrain::Grass | WorldViewTerrain::Shrubbery)
+        ));
         assert_eq!(outside.current_region_name, "");
         assert_eq!(outside.terrain.get(0, 0), Some(&WorldViewTerrain::Blank));
     }

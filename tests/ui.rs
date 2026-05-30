@@ -1,6 +1,9 @@
 use frust::{
-    app::AppState,
-    tui::{ViewId, render_tree},
+    app::{AppMessage, AppState},
+    tui::{
+        FocusState, MouseButton, MouseEvent, MouseKind, Point, UiEvent, ViewId, render_tree,
+        route_event,
+    },
     ui,
 };
 use ratatui::{
@@ -72,4 +75,176 @@ fn viewport_renders_player_at_center_as_bright_white_at_sign() {
     assert_eq!(cell.symbol(), "@");
     assert_eq!(cell.fg, Color::White);
     assert!(cell.modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn viewport_renders_sign_as_brown_vertical_post() {
+    let state = AppState::default();
+    let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let cell = terminal.backend().buffer().cell((14, 5)).unwrap();
+    assert_eq!(cell.symbol(), "|");
+    assert_eq!(cell.fg, Color::Rgb(139, 69, 19));
+}
+
+#[test]
+fn viewport_left_click_emits_walk_destination() {
+    let state = AppState::default();
+    let area = Rect::new(0, 0, 20, 8);
+    let tree = ui::compose(&state, area);
+
+    let outcome = route_event(
+        &UiEvent::Mouse(MouseEvent {
+            position: Point::new(12, 5),
+            kind: MouseKind::Down,
+            button: Some(MouseButton::Left),
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        }),
+        &tree,
+        &state,
+        &FocusState::default(),
+    );
+
+    assert_eq!(
+        outcome.messages,
+        vec![
+            AppMessage::SetViewportCursor(Some(frust::data::grid::Vector { x: 12, y: 5 })),
+            AppMessage::WalkFocusedEntityTo(frust::data::grid::Vector { x: 2, y: 1 })
+        ]
+    );
+}
+
+#[test]
+fn viewport_mouse_move_sets_rollover_cursor_and_renders_highlight() {
+    let mut state = AppState::default();
+    let area = Rect::new(0, 0, 20, 8);
+    let tree = ui::compose(&state, area);
+
+    let outcome = route_event(
+        &UiEvent::Mouse(MouseEvent {
+            position: Point::new(2, 6),
+            kind: MouseKind::Move,
+            button: None,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        }),
+        &tree,
+        &state,
+        &FocusState::default(),
+    );
+
+    for message in outcome.messages {
+        frust::app::update(&mut state, message);
+    }
+
+    let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let cell = terminal.backend().buffer().cell((2, 6)).unwrap();
+    assert!(cell.modifier.contains(Modifier::REVERSED));
+}
+
+#[test]
+fn viewport_renders_current_destination_as_white_map_cell() {
+    let mut state = AppState::default();
+    frust::app::update(
+        &mut state,
+        AppMessage::WalkFocusedEntityTo(frust::data::grid::Vector { x: 2, y: 1 }),
+    );
+    let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let cell = terminal.backend().buffer().cell((12, 5)).unwrap();
+    assert_eq!(cell.symbol(), ".");
+    assert_eq!(cell.fg, Color::LightGreen);
+    assert_eq!(cell.bg, Color::White);
+}
+
+#[test]
+fn viewport_keeps_destination_white_under_mouse_cursor() {
+    let mut state = AppState::default();
+    frust::app::update(
+        &mut state,
+        AppMessage::WalkFocusedEntityTo(frust::data::grid::Vector { x: 2, y: 1 }),
+    );
+    frust::app::update(
+        &mut state,
+        AppMessage::SetViewportCursor(Some(frust::data::grid::Vector { x: 12, y: 5 })),
+    );
+    let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let cell = terminal.backend().buffer().cell((12, 5)).unwrap();
+    assert_eq!(cell.symbol(), ".");
+    assert_eq!(cell.fg, Color::LightGreen);
+    assert_eq!(cell.bg, Color::White);
+    assert!(cell.modifier.contains(Modifier::REVERSED));
+}
+
+#[test]
+fn viewport_keeps_destination_white_while_player_is_walking() {
+    let mut state = AppState::default();
+    frust::app::update(
+        &mut state,
+        AppMessage::WalkFocusedEntityTo(frust::data::grid::Vector { x: 5, y: 1 }),
+    );
+    frust::app::tick(&mut state);
+    let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let cell = terminal.backend().buffer().cell((14, 4)).unwrap();
+    assert_eq!(cell.symbol(), ".");
+    assert_eq!(cell.fg, Color::LightGreen);
+    assert_eq!(cell.bg, Color::White);
+}
+
+#[test]
+fn viewport_destination_box_preserves_entity_glyph_underneath() {
+    let mut state = AppState::default();
+    frust::app::update(
+        &mut state,
+        AppMessage::WalkFocusedEntityTo(frust::data::grid::Vector { x: 4, y: 1 }),
+    );
+    let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let cell = terminal.backend().buffer().cell((14, 5)).unwrap();
+    assert_eq!(cell.symbol(), "|");
+    assert_eq!(cell.fg, Color::Rgb(139, 69, 19));
+    assert_eq!(cell.bg, Color::White);
 }

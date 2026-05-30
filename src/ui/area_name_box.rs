@@ -28,21 +28,22 @@ pub fn view(state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
         1.min(panel_height.saturating_sub(2)),
     );
 
+    let border_style = if state.is_turn_based() {
+        Style::default().fg(Color::LightRed)
+    } else {
+        Style::default()
+    };
+
     ViewNode::new(
-        Panel::new("area-name-box").borders(true).clear(true),
+        Panel::new("area-name-box")
+            .borders(true)
+            .clear(true)
+            .border_style(border_style),
         panel_rect,
     )
     .child(ViewNode::new(
         CustomView::new("area-name", |frame, area, state: &AppState| {
-            let style = if state.is_turn_based() {
-                Style::default().fg(Color::LightRed)
-            } else {
-                Style::default()
-            };
-            frame.render_widget(
-                Paragraph::new(current_region_name(state)).style(style),
-                area,
-            );
+            frame.render_widget(Paragraph::new(current_region_name(state)), area);
         }),
         text_rect,
     ))

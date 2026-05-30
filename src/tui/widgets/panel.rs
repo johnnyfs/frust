@@ -15,6 +15,7 @@ pub struct Panel {
     title: Option<String>,
     borders: bool,
     style: Style,
+    border_style: Style,
     clear: bool,
     layer: Layer,
     z_offset: i32,
@@ -29,6 +30,7 @@ impl Panel {
             title: None,
             borders: true,
             style: Style::default(),
+            border_style: Style::default(),
             clear: false,
             layer: Layer::Base,
             z_offset: 0,
@@ -51,6 +53,12 @@ impl Panel {
     /// Sets style.
     pub fn style(mut self, style: Style) -> Self {
         self.style = style;
+        self
+    }
+
+    /// Sets the style applied to the borders only, leaving the interior untouched.
+    pub fn border_style(mut self, border_style: Style) -> Self {
+        self.border_style = border_style;
         self
     }
 
@@ -106,7 +114,10 @@ impl<S, M> View<S, M> for Panel {
         } else {
             Borders::NONE
         };
-        let mut block = Block::default().borders(borders).style(self.style);
+        let mut block = Block::default()
+            .borders(borders)
+            .style(self.style)
+            .border_style(self.border_style);
         if let Some(title) = &self.title {
             block = block.title(title.as_str());
         }

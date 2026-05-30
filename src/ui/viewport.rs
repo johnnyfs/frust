@@ -5,7 +5,7 @@ use ratatui::{
 
 use crate::{
     app::{AppMessage, AppState},
-    data::grid::Vector,
+    data::{grid::Vector, world::TerrainType},
     tui::{
         EventResult, FocusState, InputPolicy, Layer, MouseButton, MouseKind, UiEvent, View,
         ViewNode,
@@ -14,17 +14,37 @@ use crate::{
     view::{entityview::EntityViewCell, worldview::WorldViewTerrain},
 };
 
-pub fn view(_state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
+pub fn view(state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
+    let input_policy = if state.edit_mode() {
+        InputPolicy::CaptureMouse
+    } else {
+        InputPolicy::HitTest
+    };
     ViewNode::new(
         CustomView::new("viewport", |frame, area, state: &AppState| {
             let grid = viewport_grid(state, area);
             <CellGrid as View<AppState, AppMessage>>::render(&grid, frame, area, state);
         })
-        .input_policy(InputPolicy::HitTest)
+        .input_policy(input_policy)
         .layer(Layer::Base)
         .on_event(handle_event),
         area,
     )
+}
+
+/// Glyph and style used to render a terrain tile.
+pub(crate) fn terrain_cell(kind: TerrainType) -> (char, Style) {
+    let dark_green = Color::Rgb(0, 100, 0);
+    let brown = Color::Rgb(139, 69, 19);
+    match kind {
+        TerrainType::Grass => ('.', Style::default().fg(Color::LightGreen)),
+        TerrainType::Shrubbery => ('*', Style::default().fg(dark_green)),
+        TerrainType::Forest => ('#', Style::default().fg(dark_green)),
+        TerrainType::Path => (':', Style::default().fg(brown)),
+        TerrainType::Road => (':', Style::default().fg(Color::DarkGray)),
+        TerrainType::River => ('=', Style::default().fg(Color::LightCyan)),
+        TerrainType::Pond => ('~', Style::default().fg(Color::LightCyan)),
+    }
 }
 
 fn viewport_grid(state: &AppState, area: Rect) -> CellGrid {
@@ -39,19 +59,14 @@ fn viewport_grid(state: &AppState, area: Rect) -> CellGrid {
     let mut grid = CellGrid::new("viewport-grid", area.width, area.height)
         .input_policy(InputPolicy::None)
         .layer(Layer::Base);
-    let grass_style = Style::default().fg(Color::LightGreen);
-    let shrubbery_style = Style::default().fg(Color::Rgb(0, 100, 0));
 
     for y in 0..area.height {
         for x in 0..area.width {
-            match world_view.terrain.get(x as usize, y as usize) {
-                Some(WorldViewTerrain::Grass) => {
-                    grid = grid.set_cell(x, y, '.', grass_style);
-                }
-                Some(WorldViewTerrain::Shrubbery) => {
-                    grid = grid.set_cell(x, y, '*', shrubbery_style);
-                }
-                Some(WorldViewTerrain::Blank) | None => {}
+            if let Some(WorldViewTerrain::Filled(kind)) =
+                world_view.terrain.get(x as usize, y as usize)
+            {
+                let (glyph, style) = terrain_cell(*kind);
+                grid = grid.set_cell(x, y, glyph, style);
             }
         }
     }
@@ -136,10 +151,7 @@ fn base_cell(
         .get(x as usize, y as usize)
         .map(|cell| (cell.glyph, entity_style(cell)))
         .or_else(|| match world_view.terrain.get(x as usize, y as usize) {
-            Some(WorldViewTerrain::Grass) => Some(('.', Style::default().fg(Color::LightGreen))),
-            Some(WorldViewTerrain::Shrubbery) => {
-                Some(('*', Style::default().fg(Color::Rgb(0, 100, 0))))
-            }
+            Some(WorldViewTerrain::Filled(kind)) => Some(terrain_cell(*kind)),
             Some(WorldViewTerrain::Blank) | None => None,
         })
         .unwrap_or((' ', Style::default()))
@@ -154,6 +166,15 @@ fn handle_event(
     let UiEvent::Mouse(mouse) = event else {
         return EventResult::Ignored;
     };
+    let size = Vector {
+        x: area.width as i32,
+        y: area.height as i32,
+    };
+
+    if state.edit_mode() {
+        return handle_edit_event(mouse, area, size, state);
+    }
+
     let Some(local) = CellGrid::screen_to_local(area, mouse.position) else {
         return EventResult::Ignored;
     };
@@ -170,16 +191,62 @@ fn handle_event(
         return EventResult::Ignored;
     }
 
-    let destination = state.viewport_cell_to_world(
-        Vector {
-            x: area.width as i32,
-            y: area.height as i32,
-        },
-        local,
-    );
+    let destination = state.viewport_cell_to_world(size, local);
 
     EventResult::Handled(vec![
         AppMessage::SetViewportCursor(Some(local)),
         AppMessage::ViewportClicked(destination),
     ])
+}
+
+fn handle_edit_event(
+    mouse: &crate::tui::MouseEvent,
+    area: Rect,
+    size: Vector,
+    state: &AppState,
+) -> EventResult<AppMessage> {
+    let screen = Vector {
+        x: mouse.position.x as i32,
+        y: mouse.position.y as i32,
+    };
+
+    match (mouse.kind, mouse.button) {
+        (MouseKind::Down, Some(MouseButton::Middle)) => {
+            EventResult::message(AppMessage::BeginEditPan(screen))
+        }
+        (MouseKind::Drag, Some(MouseButton::Middle)) => {
+            EventResult::message(AppMessage::DragEditPan(screen))
+        }
+        (MouseKind::Down, Some(MouseButton::Left))
+        | (MouseKind::Drag, Some(MouseButton::Left)) => {
+            let Some(local) = CellGrid::screen_to_local(area, mouse.position) else {
+                return EventResult::Ignored;
+            };
+            let coord = state.viewport_cell_to_world(
+                size,
+                Vector {
+                    x: local.x as i32,
+                    y: local.y as i32,
+                },
+            );
+            EventResult::Handled(vec![
+                AppMessage::SetViewportCursor(Some(Vector {
+                    x: local.x as i32,
+                    y: local.y as i32,
+                })),
+                AppMessage::PaintTerrain(coord),
+            ])
+        }
+        (MouseKind::Up, _) => EventResult::message(AppMessage::EndEditPan),
+        (MouseKind::Move, _) => {
+            let Some(local) = CellGrid::screen_to_local(area, mouse.position) else {
+                return EventResult::Ignored;
+            };
+            EventResult::message(AppMessage::SetViewportCursor(Some(Vector {
+                x: local.x as i32,
+                y: local.y as i32,
+            })))
+        }
+        _ => EventResult::Ignored,
+    }
 }

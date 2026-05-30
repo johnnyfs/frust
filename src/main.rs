@@ -26,6 +26,9 @@ fn main() -> io::Result<()> {
         let mut terminal = Terminal::new(backend)?;
         let mut state = AppState::default();
         state.enable_file_logging(app::COMBAT_LOG_PATH);
+        if let Err(error) = state.load_region_from(app::DEFAULT_REGION_PATH) {
+            eprintln!("failed to load region resource: {error}");
+        }
         let mut focus = FocusState::default();
         let mut last_step = Instant::now();
 

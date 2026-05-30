@@ -48,6 +48,6 @@ pub fn view(state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
     ))
 }
 
-fn current_region_name(state: &AppState) -> &'static str {
+fn current_region_name(state: &AppState) -> String {
     state.world_view(Vector { x: 1, y: 1 }).current_region_name
 }

@@ -7,15 +7,16 @@ use super::coordinates::local_to_world;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldViewTerrain {
+    /// No loaded region covers this cell.
     Blank,
-    Grass,
-    Shrubbery,
+    /// A terrain tile from a loaded region.
+    Filled(TerrainType),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldView {
     pub terrain: Grid<WorldViewTerrain>,
-    pub current_region_name: &'static str,
+    pub current_region_name: String,
 }
 
 pub fn from_world(world: &World, center: Vector, size: Vector) -> WorldView {
@@ -23,8 +24,8 @@ pub fn from_world(world: &World, center: Vector, size: Vector) -> WorldView {
     let height = size.y.max(0) as usize;
     let current_region_name = world
         .region_containing(center)
-        .map(|region| region.name())
-        .unwrap_or("");
+        .map(|region| region.name().to_string())
+        .unwrap_or_default();
 
     let terrain = Grid::from_fn(width, height, |x, y| {
         let coord = local_to_world(
@@ -36,8 +37,7 @@ pub fn from_world(world: &World, center: Vector, size: Vector) -> WorldView {
             },
         );
         match world.terrain_at(coord).map(|terrain| terrain.kind()) {
-            Some(TerrainType::Grass) => WorldViewTerrain::Grass,
-            Some(TerrainType::Shrubbery) => WorldViewTerrain::Shrubbery,
+            Some(kind) => WorldViewTerrain::Filled(kind),
             None => WorldViewTerrain::Blank,
         }
     });
@@ -52,7 +52,7 @@ pub fn from_world(world: &World, center: Vector, size: Vector) -> WorldView {
 mod tests {
     use crate::data::{
         grid::{ORIGIN, Vector},
-        world::{WORLD_REGION_WIDTH, World},
+        world::{TerrainType, WORLD_REGION_WIDTH, World},
     };
 
     use super::{WorldViewTerrain, from_world};
@@ -70,8 +70,8 @@ mod tests {
         for y in 0..view.terrain.height() {
             for x in 0..view.terrain.width() {
                 match view.terrain.get(x, y) {
-                    Some(WorldViewTerrain::Grass) => grass_count += 1,
-                    Some(WorldViewTerrain::Shrubbery) => shrubbery_count += 1,
+                    Some(WorldViewTerrain::Filled(TerrainType::Grass)) => grass_count += 1,
+                    Some(WorldViewTerrain::Filled(TerrainType::Shrubbery)) => shrubbery_count += 1,
                     other => panic!("expected region terrain, got {other:?}"),
                 }
             }
@@ -117,7 +117,9 @@ mod tests {
         assert_eq!(inside.current_region_name, "Bridgeport Outskirts");
         assert!(matches!(
             inside.terrain.get(0, 0).copied(),
-            Some(WorldViewTerrain::Grass | WorldViewTerrain::Shrubbery)
+            Some(WorldViewTerrain::Filled(
+                TerrainType::Grass | TerrainType::Shrubbery
+            ))
         ));
         assert_eq!(outside.current_region_name, "");
         assert_eq!(outside.terrain.get(0, 0), Some(&WorldViewTerrain::Blank));

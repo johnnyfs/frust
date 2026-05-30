@@ -3,7 +3,7 @@ use ratatui::style::Color;
 
 use crate::{
     data::grid::{SparseGrid, Vector},
-    ecs::{Position, Renderable, RenderableEntities, ViewFocus},
+    ecs::{Position, Renderable, RenderableEntities},
     view::coordinates::world_to_local,
 };
 
@@ -29,8 +29,7 @@ impl EntityView {
     }
 }
 
-pub fn from_ecs(world: &EcsWorld, size: Vector) -> EntityView {
-    let center = world.resource::<ViewFocus>().center;
+pub fn from_ecs(world: &EcsWorld, center: Vector, size: Vector) -> EntityView {
     let renderables = world.resource::<RenderableEntities>();
     let mut cells: SparseGrid<EntityViewCell> = SparseGrid::new();
 

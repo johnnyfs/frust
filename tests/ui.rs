@@ -1,5 +1,6 @@
 use frust::{
-    app::{AppMessage, AppState},
+    app::{self, AppMessage, AppState},
+    data::{grid::Vector, world::TerrainType},
     tui::{
         FocusState, MouseButton, MouseEvent, MouseKind, Point, UiEvent, ViewId, render_tree,
         route_event,
@@ -12,6 +13,19 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier},
 };
+
+fn left_click(position: Point) -> UiEvent {
+    UiEvent::Mouse(MouseEvent {
+        position,
+        kind: MouseKind::Down,
+        button: Some(MouseButton::Left),
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    })
+}
+
+fn enter_edit_mode(state: &mut AppState) {
+    app::update(state, AppMessage::ToggleEditMode);
+}
 
 #[test]
 fn composed_ui_uses_viewport_instead_of_printable_background() {
@@ -313,4 +327,165 @@ fn viewport_destination_box_preserves_entity_glyph_underneath() {
     assert_eq!(cell.symbol(), "|");
     assert_eq!(cell.fg, Color::Rgb(139, 69, 19));
     assert_eq!(cell.bg, Color::White);
+}
+
+#[test]
+fn palette_appears_only_in_edit_mode() {
+    let mut state = AppState::default();
+    let area = Rect::new(0, 0, 40, 20);
+
+    let tree = ui::compose(&state, area);
+    assert!(tree.find(&ViewId::new("palette")).is_none());
+
+    enter_edit_mode(&mut state);
+    let tree = ui::compose(&state, area);
+    assert!(tree.find(&ViewId::new("palette")).is_some());
+}
+
+#[test]
+fn expanded_palette_renders_toggle_and_selected_tile() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    // Toggle is in the upper-left at the palette origin (x=4, y=4).
+    assert_eq!(buffer.cell((4, 4)).unwrap().symbol(), "V");
+    // First terrain row is grass: a light-green dot with its name.
+    let grass_glyph = buffer.cell((4, 5)).unwrap();
+    assert_eq!(grass_glyph.symbol(), ".");
+    assert_eq!(grass_glyph.fg, Color::LightGreen);
+    assert_eq!(buffer.cell((6, 5)).unwrap().symbol(), "G");
+    // The selected terrain row (grass by default) is highlighted.
+    assert!(
+        buffer
+            .cell((6, 5))
+            .unwrap()
+            .modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
+#[test]
+fn collapsed_palette_renders_arrow_and_selected_tile() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    app::update(&mut state, AppMessage::SelectTerrain(TerrainType::River));
+    app::update(&mut state, AppMessage::TogglePaletteCollapse);
+    let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    assert_eq!(buffer.cell((4, 4)).unwrap().symbol(), ">");
+    let selected = buffer.cell((6, 4)).unwrap();
+    assert_eq!(selected.symbol(), "=");
+    assert_eq!(selected.fg, Color::LightCyan);
+}
+
+#[test]
+fn clicking_a_palette_row_selects_that_terrain() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    let area = Rect::new(0, 0, 40, 20);
+    let tree = ui::compose(&state, area);
+
+    // Forest is the third terrain (id 2), rendered on the third row below the
+    // toggle: palette y origin 4 + (2 + 1) = 7.
+    let outcome = route_event(&left_click(Point::new(4, 7)), &tree, &state, &FocusState::default());
+    assert_eq!(
+        outcome.messages,
+        vec![AppMessage::SelectTerrain(TerrainType::Forest)]
+    );
+
+    for message in outcome.messages {
+        app::update(&mut state, message);
+    }
+    assert_eq!(state.selected_terrain(), TerrainType::Forest);
+}
+
+#[test]
+fn clicking_the_palette_toggle_collapses_it() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    let area = Rect::new(0, 0, 40, 20);
+    let tree = ui::compose(&state, area);
+
+    let outcome = route_event(&left_click(Point::new(4, 4)), &tree, &state, &FocusState::default());
+    assert_eq!(outcome.messages, vec![AppMessage::TogglePaletteCollapse]);
+}
+
+#[test]
+fn palette_consumes_clicks_so_they_do_not_paint_through() {
+    let mut state = AppState::default();
+    enter_edit_mode(&mut state);
+    let area = Rect::new(0, 0, 40, 20);
+    let tree = ui::compose(&state, area);
+
+    // A click on a palette row never emits a PaintTerrain message.
+    let outcome = route_event(&left_click(Point::new(5, 8)), &tree, &state, &FocusState::default());
+    assert!(
+        outcome
+            .messages
+            .iter()
+            .all(|message| !matches!(message, AppMessage::PaintTerrain(_)))
+    );
+}
+
+#[test]
+fn viewport_renders_all_terrain_glyphs_and_styles() {
+    let mut state = AppState::default();
+    let size = Vector { x: 40, y: 20 };
+    let cells = [
+        (0u16, 0u16, TerrainType::Grass, ".", Color::LightGreen),
+        (1, 0, TerrainType::Shrubbery, "*", Color::Rgb(0, 100, 0)),
+        (2, 0, TerrainType::Forest, "#", Color::Rgb(0, 100, 0)),
+        (3, 0, TerrainType::Path, ":", Color::Rgb(139, 69, 19)),
+        (0, 1, TerrainType::Road, ":", Color::DarkGray),
+        (1, 1, TerrainType::River, "=", Color::LightCyan),
+        (2, 1, TerrainType::Pond, "~", Color::LightCyan),
+    ];
+
+    for (x, y, terrain, _, _) in cells {
+        let coord = state.viewport_cell_to_world(
+            size,
+            Vector {
+                x: x as i32,
+                y: y as i32,
+            },
+        );
+        assert!(
+            state
+                .ecs_world
+                .resource_mut::<frust::data::world::World>()
+                .set_terrain(coord, terrain)
+        );
+    }
+
+    let mut terminal = Terminal::new(TestBackend::new(size.x as u16, size.y as u16)).unwrap();
+    terminal
+        .draw(|frame| {
+            let tree = ui::compose(&state, frame.area());
+            render_tree(&tree, frame, &state);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    for (x, y, _, glyph, color) in cells {
+        let cell = buffer.cell((x, y)).unwrap();
+        assert_eq!(cell.symbol(), glyph, "glyph at ({x}, {y})");
+        assert_eq!(cell.fg, color, "color at ({x}, {y})");
+    }
 }

@@ -58,6 +58,16 @@ impl<T> Grid<T> {
             None
         }
     }
+
+    /// Overwrites a cell when in bounds, returning whether the write landed.
+    pub fn set(&mut self, x: usize, y: usize, value: T) -> bool {
+        if x < self.width && y < self.height {
+            self.cells[y * self.width + x] = value;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -79,6 +89,10 @@ impl<T> SparseGrid<T> {
 
     pub fn get(&self, coord: &Vector) -> Option<&T> {
         self.cells.get(coord)
+    }
+
+    pub fn get_mut(&mut self, coord: &Vector) -> Option<&mut T> {
+        self.cells.get_mut(coord)
     }
 }
 

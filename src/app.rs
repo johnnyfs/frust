@@ -1,6 +1,6 @@
 //! Application-owned state and update logic.
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use bevy_ecs::{schedule::Schedule, world::World as EcsWorld};
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -8,7 +8,8 @@ use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use crate::{
     data::{
         grid::{ORIGIN, Vector},
-        world::World,
+        region::{self, RegionDocument, RegionError},
+        world::{TerrainType, World},
     },
     ecs::{
         ActiveWalkDestination, CombatLog, ControlFocus, GameMode, PendingWalkDestination, Position,
@@ -28,6 +29,8 @@ pub const BRIDGEPORT_OUTSKIRTS: &str = "Bridgeport Outskirts";
 pub const PLAYER_STEP_INTERVAL: Duration = Duration::from_millis(100);
 /// Local file used for combat/debug messages so the terminal UI never scrolls.
 pub const COMBAT_LOG_PATH: &str = "frust.log";
+/// Default region resource loaded at startup.
+pub const DEFAULT_REGION_PATH: &str = "resources/regions/bridgeport_outskirts.json";
 
 /// Durable client state.
 pub struct AppState {
@@ -37,6 +40,24 @@ pub struct AppState {
     viewport_cursor: Option<Vector>,
     /// Whether the terminal client should exit.
     pub quit: bool,
+    /// Whether terrain edit mode is active.
+    edit_mode: bool,
+    /// Frozen view center while edit mode is active.
+    edit_focus: Option<Vector>,
+    /// Terrain painted on left click in edit mode.
+    selected_terrain: TerrainType,
+    /// Whether the terrain palette is collapsed.
+    palette_collapsed: bool,
+    /// Whether the loaded region has unsaved edits.
+    dirty: bool,
+    /// Last region-save error, if any.
+    save_error: Option<String>,
+    /// Path of the loaded region resource, used for saving.
+    region_path: Option<PathBuf>,
+    /// Center coordinate of the loaded region.
+    region_center: Vector,
+    /// Last pointer position captured during a middle-drag pan.
+    pan_anchor: Option<Vector>,
 }
 
 impl Default for AppState {
@@ -51,24 +72,38 @@ impl Default for AppState {
             movement_schedule: movement_schedule(),
             viewport_cursor: None,
             quit: false,
+            edit_mode: false,
+            edit_focus: None,
+            selected_terrain: TerrainType::Grass,
+            palette_collapsed: false,
+            dirty: false,
+            save_error: None,
+            region_path: None,
+            region_center: ORIGIN,
+            pan_anchor: None,
         }
     }
 }
 
 impl AppState {
+    /// View center used for rendering and coordinate conversion. In edit mode
+    /// this is the frozen edit focus; otherwise it follows the ECS view focus.
+    fn view_center(&self) -> Vector {
+        self.edit_focus
+            .unwrap_or_else(|| self.ecs_world.resource::<ViewFocus>().center)
+    }
+
     pub fn world_view(&self, size: Vector) -> WorldView {
         let world = self.ecs_world.resource::<World>();
-        let center = self.ecs_world.resource::<ViewFocus>().center;
-        from_world(world, center, size)
+        from_world(world, self.view_center(), size)
     }
 
     pub fn entity_view(&self, size: Vector) -> EntityView {
-        from_ecs(&self.ecs_world, size)
+        from_ecs(&self.ecs_world, self.view_center(), size)
     }
 
     pub fn viewport_cell_to_world(&self, size: Vector, local: Vector) -> Vector {
-        let center = self.ecs_world.resource::<ViewFocus>().center;
-        local_to_world(center, size, local)
+        local_to_world(self.view_center(), size, local)
     }
 
     pub fn viewport_cursor(&self) -> Option<Vector> {
@@ -80,8 +115,7 @@ impl AppState {
     }
 
     pub fn viewport_destination_cell(&self, size: Vector) -> Option<Vector> {
-        let center = self.ecs_world.resource::<ViewFocus>().center;
-        world_to_local(center, size, self.focused_walk_destination()?)
+        world_to_local(self.view_center(), size, self.focused_walk_destination()?)
     }
 
     pub fn viewport_focus_cell(&self, size: Vector) -> Option<Vector> {
@@ -89,10 +123,113 @@ impl AppState {
             return None;
         }
 
-        let center = self.ecs_world.resource::<ViewFocus>().center;
         let focused = self.ecs_world.resource::<ControlFocus>().entity;
         let position = self.ecs_world.get::<Position>(focused)?.0;
-        world_to_local(center, size, position)
+        world_to_local(self.view_center(), size, position)
+    }
+
+    /// Whether terrain edit mode is active.
+    pub fn edit_mode(&self) -> bool {
+        self.edit_mode
+    }
+
+    /// Terrain selected for painting in edit mode.
+    pub fn selected_terrain(&self) -> TerrainType {
+        self.selected_terrain
+    }
+
+    /// Whether the terrain palette is collapsed.
+    pub fn palette_collapsed(&self) -> bool {
+        self.palette_collapsed
+    }
+
+    /// Last region-save error message, if any.
+    pub fn save_error(&self) -> Option<&str> {
+        self.save_error.as_deref()
+    }
+
+    /// Loads (or creates) a region resource and installs it as the world.
+    pub fn load_region_from(&mut self, path: impl Into<PathBuf>) -> Result<(), RegionError> {
+        let path = path.into();
+        let document = region::load_or_create(&path)?;
+        let (center, region) = document.to_region()?;
+        let mut world = World::new();
+        world.insert_region(center, region);
+        self.ecs_world.insert_resource(world);
+        self.region_path = Some(path);
+        self.region_center = center;
+        self.dirty = false;
+        self.save_error = None;
+        Ok(())
+    }
+
+    fn toggle_edit_mode(&mut self) {
+        if self.edit_mode {
+            self.edit_mode = false;
+            self.edit_focus = None;
+            self.pan_anchor = None;
+        } else {
+            self.edit_mode = true;
+            self.edit_focus = Some(self.ecs_world.resource::<ViewFocus>().center);
+        }
+    }
+
+    fn paint_terrain(&mut self, coord: Vector) {
+        let kind = self.selected_terrain;
+        if self.ecs_world.resource_mut::<World>().set_terrain(coord, kind) {
+            self.dirty = true;
+        }
+    }
+
+    fn begin_pan(&mut self, point: Vector) {
+        if self.edit_mode {
+            self.pan_anchor = Some(point);
+        }
+    }
+
+    fn drag_pan(&mut self, point: Vector) {
+        if !self.edit_mode {
+            return;
+        }
+        let Some(anchor) = self.pan_anchor else {
+            return;
+        };
+        let delta = Vector {
+            x: point.x - anchor.x,
+            y: point.y - anchor.y,
+        };
+        let focus = self.view_center();
+        self.edit_focus = Some(Vector {
+            x: focus.x - delta.x,
+            y: focus.y - delta.y,
+        });
+        self.pan_anchor = Some(point);
+    }
+
+    fn end_pan(&mut self) {
+        self.pan_anchor = None;
+    }
+
+    fn save_region(&mut self) {
+        let Some(path) = self.region_path.clone() else {
+            self.save_error = Some("no region file configured".to_string());
+            return;
+        };
+        let world = self.ecs_world.resource::<World>();
+        let Some(region) = world.region_at(self.region_center) else {
+            self.save_error = Some("no loaded region to save".to_string());
+            return;
+        };
+        let document = RegionDocument::from_region(self.region_center, region);
+        match region::save_document(&path, &document) {
+            Ok(()) => {
+                self.dirty = false;
+                self.save_error = None;
+            }
+            Err(error) => {
+                self.save_error = Some(error.to_string());
+            }
+        }
     }
 
     pub fn is_turn_based(&self) -> bool {
@@ -120,6 +257,22 @@ pub enum AppMessage {
     WalkFocusedEntityTo(Vector),
     SetViewportCursor(Option<Vector>),
     EndTurn,
+    /// Toggle terrain edit mode.
+    ToggleEditMode,
+    /// Save the loaded region (edit mode only).
+    SaveRegion,
+    /// Paint the selected terrain at a world coordinate.
+    PaintTerrain(Vector),
+    /// Select the active terrain in the palette.
+    SelectTerrain(TerrainType),
+    /// Collapse/expand the terrain palette.
+    TogglePaletteCollapse,
+    /// Begin a middle-drag pan at a screen point.
+    BeginEditPan(Vector),
+    /// Continue a middle-drag pan to a screen point.
+    DragEditPan(Vector),
+    /// End the current paint/pan capture.
+    EndEditPan,
 }
 
 /// Applies a UI/application message to durable state.
@@ -134,6 +287,32 @@ pub fn update(state: &mut AppState, message: AppMessage) {
         }
         AppMessage::EndTurn => {
             end_current_turn(&mut state.ecs_world);
+        }
+        AppMessage::ToggleEditMode => {
+            state.toggle_edit_mode();
+        }
+        AppMessage::SaveRegion => {
+            if state.edit_mode {
+                state.save_region();
+            }
+        }
+        AppMessage::PaintTerrain(coord) => {
+            state.paint_terrain(coord);
+        }
+        AppMessage::SelectTerrain(terrain) => {
+            state.selected_terrain = terrain;
+        }
+        AppMessage::TogglePaletteCollapse => {
+            state.palette_collapsed = !state.palette_collapsed;
+        }
+        AppMessage::BeginEditPan(point) => {
+            state.begin_pan(point);
+        }
+        AppMessage::DragEditPan(point) => {
+            state.drag_pan(point);
+        }
+        AppMessage::EndEditPan => {
+            state.end_pan();
         }
     }
 }
@@ -157,20 +336,38 @@ pub fn should_quit(event: &Event) -> bool {
 /// Converts global raw input into application messages before UI routing.
 pub fn global_message(event: &Event) -> Option<AppMessage> {
     match event {
-        Event::Key(key) if key.kind == KeyEventKind::Press && key.code == KeyCode::Char(' ') => {
-            Some(AppMessage::EndTurn)
-        }
+        Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+            KeyCode::Char(' ') => Some(AppMessage::EndTurn),
+            KeyCode::Char('e') => Some(AppMessage::ToggleEditMode),
+            KeyCode::Char('s') => Some(AppMessage::SaveRegion),
+            _ => None,
+        },
         _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AppMessage, AppState, tick, update};
+    use super::{AppMessage, AppState, global_message, tick, update};
     use crate::{
-        data::grid::Vector,
+        data::{
+            grid::{ORIGIN, Vector},
+            world::{TerrainType, World},
+        },
         ecs::{ControlFocus, Position, Renderable, RenderableEntities, ViewFocus, WalkTarget},
     };
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+
+    fn key_event(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn temp_region_path(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "frust-app-region-{}-{label}.json",
+            std::process::id()
+        ))
+    }
 
     #[test]
     fn ecs_startup_creates_map_player_sign_and_focus() {
@@ -321,5 +518,96 @@ mod tests {
             state.viewport_destination_cell(Vector { x: 20, y: 8 }),
             None
         );
+    }
+
+    #[test]
+    fn e_key_toggles_edit_mode_and_freezes_edit_focus() {
+        let mut state = AppState::default();
+        state.ecs_world.resource_mut::<ViewFocus>().center = Vector { x: 7, y: -3 };
+        assert!(!state.edit_mode());
+        assert_eq!(state.edit_focus, None);
+
+        let message = global_message(&key_event(KeyCode::Char('e'))).unwrap();
+        assert_eq!(message, AppMessage::ToggleEditMode);
+        update(&mut state, message);
+
+        assert!(state.edit_mode());
+        assert_eq!(state.edit_focus, Some(Vector { x: 7, y: -3 }));
+
+        update(&mut state, AppMessage::ToggleEditMode);
+        assert!(!state.edit_mode());
+        assert_eq!(state.edit_focus, None);
+    }
+
+    #[test]
+    fn s_key_saves_only_in_edit_mode() {
+        let path = temp_region_path("save-only-in-edit");
+        let _ = std::fs::remove_file(&path);
+
+        let mut state = AppState::default();
+        state.region_path = Some(path.clone());
+        state.region_center = ORIGIN;
+
+        // Outside edit mode the save is ignored.
+        let message = global_message(&key_event(KeyCode::Char('s'))).unwrap();
+        assert_eq!(message, AppMessage::SaveRegion);
+        update(&mut state, message);
+        assert!(!path.exists());
+
+        // In edit mode the save writes the document.
+        update(&mut state, AppMessage::ToggleEditMode);
+        update(&mut state, AppMessage::SaveRegion);
+        assert!(path.exists());
+        assert_eq!(state.save_error(), None);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn painting_changes_terrain_and_marks_world_dirty() {
+        let mut state = AppState::default();
+        update(&mut state, AppMessage::ToggleEditMode);
+        update(&mut state, AppMessage::SelectTerrain(TerrainType::Forest));
+
+        assert!(!state.dirty);
+        update(&mut state, AppMessage::PaintTerrain(ORIGIN));
+
+        assert!(state.dirty);
+        assert_eq!(
+            state
+                .ecs_world
+                .resource::<World>()
+                .terrain_at(ORIGIN)
+                .map(|terrain| terrain.kind()),
+            Some(TerrainType::Forest)
+        );
+    }
+
+    #[test]
+    fn painting_outside_a_region_is_a_noop() {
+        let mut state = AppState::default();
+        update(&mut state, AppMessage::ToggleEditMode);
+        update(
+            &mut state,
+            AppMessage::PaintTerrain(Vector { x: 100_000, y: 0 }),
+        );
+        assert!(!state.dirty);
+    }
+
+    #[test]
+    fn middle_drag_pans_edit_focus_with_inverted_delta() {
+        let mut state = AppState::default();
+        state.ecs_world.resource_mut::<ViewFocus>().center = ORIGIN;
+        update(&mut state, AppMessage::ToggleEditMode);
+        assert_eq!(state.edit_focus, Some(ORIGIN));
+
+        update(&mut state, AppMessage::BeginEditPan(Vector { x: 10, y: 10 }));
+        // Dragging down (y increases) moves the focus upward (y decreases).
+        update(&mut state, AppMessage::DragEditPan(Vector { x: 7, y: 15 }));
+
+        assert_eq!(state.edit_focus, Some(Vector { x: 3, y: -5 }));
+
+        update(&mut state, AppMessage::EndEditPan);
+        assert_eq!(state.pan_anchor, None);
     }
 }

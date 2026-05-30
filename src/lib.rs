@@ -1,6 +1,7 @@
 //! Client application crate with an internal terminal UI toolkit.
 
 pub mod app;
+pub mod bestiary;
 pub mod data;
 pub mod ecs;
 pub mod rules;

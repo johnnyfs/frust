@@ -8,13 +8,16 @@ use crate::{
 };
 
 mod area_name_box;
+mod inspector;
 mod viewport;
 
 /// Composes the full client UI for the current frame.
 pub fn compose(state: &AppState, area: Rect) -> ViewTree<AppState, AppMessage> {
-    ViewTree::new(
-        tui::root(area)
-            .child(viewport::view(state, area))
-            .child(area_name_box::view(state, area)),
-    )
+    let mut root = tui::root(area)
+        .child(viewport::view(state, area))
+        .child(area_name_box::view(state, area));
+    if let Some(node) = inspector::view(state, area) {
+        root = root.child(node);
+    }
+    ViewTree::new(root)
 }

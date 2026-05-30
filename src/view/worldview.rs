@@ -1,3 +1,5 @@
+use ratatui::style::Color;
+
 use crate::data::{
     grid::{Grid, Vector},
     world::{TerrainType, World},
@@ -10,6 +12,26 @@ pub enum WorldViewTerrain {
     Blank,
     Grass,
     Shrubbery,
+}
+
+impl WorldViewTerrain {
+    /// Display glyph and color for this terrain, or `None` for `Blank`.
+    pub fn marker(&self) -> Option<(char, Color)> {
+        match self {
+            WorldViewTerrain::Grass => Some(('.', Color::LightGreen)),
+            WorldViewTerrain::Shrubbery => Some(('*', Color::Rgb(0, 100, 0))),
+            WorldViewTerrain::Blank => None,
+        }
+    }
+
+    /// Human-readable name for this terrain, or `None` for `Blank`.
+    pub fn display_name(&self) -> Option<&'static str> {
+        match self {
+            WorldViewTerrain::Grass => Some("Grass"),
+            WorldViewTerrain::Shrubbery => Some("Shrubbery"),
+            WorldViewTerrain::Blank => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

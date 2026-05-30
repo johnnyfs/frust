@@ -11,7 +11,7 @@ use crate::{
         ViewNode,
         widgets::{CellGrid, CustomView},
     },
-    view::{entityview::EntityViewCell, worldview::WorldViewTerrain},
+    view::entityview::EntityViewCell,
 };
 
 pub fn view(_state: &AppState, area: Rect) -> ViewNode<AppState, AppMessage> {
@@ -39,19 +39,14 @@ fn viewport_grid(state: &AppState, area: Rect) -> CellGrid {
     let mut grid = CellGrid::new("viewport-grid", area.width, area.height)
         .input_policy(InputPolicy::None)
         .layer(Layer::Base);
-    let grass_style = Style::default().fg(Color::LightGreen);
-    let shrubbery_style = Style::default().fg(Color::Rgb(0, 100, 0));
-
     for y in 0..area.height {
         for x in 0..area.width {
-            match world_view.terrain.get(x as usize, y as usize) {
-                Some(WorldViewTerrain::Grass) => {
-                    grid = grid.set_cell(x, y, '.', grass_style);
-                }
-                Some(WorldViewTerrain::Shrubbery) => {
-                    grid = grid.set_cell(x, y, '*', shrubbery_style);
-                }
-                Some(WorldViewTerrain::Blank) | None => {}
+            if let Some((glyph, color)) = world_view
+                .terrain
+                .get(x as usize, y as usize)
+                .and_then(|terrain| terrain.marker())
+            {
+                grid = grid.set_cell(x, y, glyph, Style::default().fg(color));
             }
         }
     }
@@ -135,12 +130,12 @@ fn base_cell(
     entity_view
         .get(x as usize, y as usize)
         .map(|cell| (cell.glyph, entity_style(cell)))
-        .or_else(|| match world_view.terrain.get(x as usize, y as usize) {
-            Some(WorldViewTerrain::Grass) => Some(('.', Style::default().fg(Color::LightGreen))),
-            Some(WorldViewTerrain::Shrubbery) => {
-                Some(('*', Style::default().fg(Color::Rgb(0, 100, 0))))
-            }
-            Some(WorldViewTerrain::Blank) | None => None,
+        .or_else(|| {
+            world_view
+                .terrain
+                .get(x as usize, y as usize)
+                .and_then(|terrain| terrain.marker())
+                .map(|(glyph, color)| (glyph, Style::default().fg(color)))
         })
         .unwrap_or((' ', Style::default()))
 }

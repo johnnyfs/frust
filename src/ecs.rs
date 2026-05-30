@@ -62,6 +62,9 @@ pub struct AttackMoveTarget {
 pub struct Name(pub &'static str);
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Description(pub &'static str);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Species(pub SpeciesKind);
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,7 +392,8 @@ pub fn spawn_initial_entities(world: &mut World) {
 
     let sign = world
         .spawn((
-            Name("Sign"),
+            Name("Signpost"),
+            Description("A wooden signpost"),
             Position(SIGN_POSITION),
             Renderable {
                 glyph: '|',

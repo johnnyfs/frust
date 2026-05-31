@@ -16,10 +16,13 @@ pub enum TerrainType {
     River,
     Pond,
     Clearing,
+    Ridge,
+    Chasm,
+    Ravine,
 }
 
 /// All terrain variants in stable id order.
-pub const TERRAIN_TYPES: [TerrainType; 8] = [
+pub const TERRAIN_TYPES: [TerrainType; 11] = [
     TerrainType::Grass,
     TerrainType::Shrubbery,
     TerrainType::Forest,
@@ -28,6 +31,9 @@ pub const TERRAIN_TYPES: [TerrainType; 8] = [
     TerrainType::River,
     TerrainType::Pond,
     TerrainType::Clearing,
+    TerrainType::Ridge,
+    TerrainType::Chasm,
+    TerrainType::Ravine,
 ];
 
 impl TerrainType {
@@ -42,6 +48,9 @@ impl TerrainType {
             TerrainType::River => 5,
             TerrainType::Pond => 6,
             TerrainType::Clearing => 7,
+            TerrainType::Ridge => 8,
+            TerrainType::Chasm => 9,
+            TerrainType::Ravine => 10,
         }
     }
 
@@ -61,7 +70,18 @@ impl TerrainType {
             TerrainType::River => "River",
             TerrainType::Pond => "Pond",
             TerrainType::Clearing => "Clearing",
+            TerrainType::Ridge => "Ridge",
+            TerrainType::Chasm => "Chasm",
+            TerrainType::Ravine => "Ravine",
         }
+    }
+
+    /// Whether creatures are blocked from entering tiles of this terrain.
+    pub fn is_obstructive(self) -> bool {
+        matches!(
+            self,
+            TerrainType::Ridge | TerrainType::Chasm | TerrainType::Ravine
+        )
     }
 }
 
@@ -431,5 +451,27 @@ mod tests {
         let far = Vector { x: 100_000, y: 0 };
         assert!(!world.flood_fill(far, TerrainType::Road));
         assert!(!world.fill_rect(far, far, TerrainType::Road));
+    }
+
+    #[test]
+    fn every_terrain_round_trips_through_its_stable_id() {
+        for terrain in TERRAIN_TYPES {
+            assert_eq!(TerrainType::from_id(terrain.id()), Some(terrain));
+        }
+    }
+
+    #[test]
+    fn ridge_chasm_and_ravine_are_the_only_obstructive_terrain() {
+        assert_eq!(TerrainType::Ridge.name(), "Ridge");
+        assert_eq!(TerrainType::Chasm.name(), "Chasm");
+        assert_eq!(TerrainType::Ravine.name(), "Ravine");
+
+        for terrain in TERRAIN_TYPES {
+            let expected = matches!(
+                terrain,
+                TerrainType::Ridge | TerrainType::Chasm | TerrainType::Ravine
+            );
+            assert_eq!(terrain.is_obstructive(), expected, "{:?}", terrain);
+        }
     }
 }

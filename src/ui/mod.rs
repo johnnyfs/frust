@@ -8,6 +8,7 @@ use crate::{
 };
 
 mod area_name_box;
+mod end_turn_box;
 mod inspector;
 mod palette;
 mod party_status_box;
@@ -27,6 +28,9 @@ pub fn compose(state: &AppState, area: Rect) -> ViewTree<AppState, AppMessage> {
             .child(party_status_box::view(state, area))
             .child(area_name_box::view(state, area));
         if let Some(node) = inspector::view(state, area) {
+            root = root.child(node);
+        }
+        if let Some(node) = end_turn_box::view(state, area) {
             root = root.child(node);
         }
     }

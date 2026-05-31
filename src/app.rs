@@ -12,8 +12,8 @@ use crate::{
         world::{TerrainType, World},
     },
     ecs::{
-        ActiveWalkDestination, CombatLog, ControlFocus, GameMode, PendingWalkDestination, Position,
-        ViewFocus, end_current_turn, movement_schedule, spawn_initial_entities,
+        ActiveWalkDestination, CombatLog, ControlFocus, Faction, GameMode, PendingWalkDestination,
+        Position, TurnOrder, ViewFocus, end_current_turn, movement_schedule, spawn_initial_entities,
         sync_view_focus_system,
     },
     view::{
@@ -360,6 +360,17 @@ impl AppState {
 
     pub fn is_turn_based(&self) -> bool {
         *self.ecs_world.resource::<GameMode>() == GameMode::TurnBased
+    }
+
+    /// Whether it is currently a player-controlled character's turn in battle.
+    pub fn is_player_turn(&self) -> bool {
+        if !self.is_turn_based() {
+            return false;
+        }
+        let Some(active) = self.ecs_world.resource::<TurnOrder>().active() else {
+            return false;
+        };
+        self.ecs_world.get::<Faction>(active) == Some(&Faction::Party)
     }
 
     pub fn combat_log_lines(&self, limit: usize) -> Vec<&str> {

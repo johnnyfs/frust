@@ -177,6 +177,62 @@ fn viewport_left_click_emits_walk_destination() {
     );
 }
 
+/// Points the turn order at the first party member so it is deterministically a
+/// player-controlled character's turn, regardless of the rolled initiative.
+fn force_party_turn(state: &mut AppState) {
+    let order = state.ecs_world.resource::<frust::ecs::TurnOrder>().clone();
+    let index = order
+        .entries
+        .iter()
+        .position(|entry| {
+            state.ecs_world.get::<frust::ecs::Faction>(entry.entity)
+                == Some(&frust::ecs::Faction::Party)
+        })
+        .expect("a party member in the turn order");
+    state
+        .ecs_world
+        .resource_mut::<frust::ecs::TurnOrder>()
+        .current_index = index;
+}
+
+#[test]
+fn end_turn_box_hidden_outside_player_turn() {
+    // Explore mode: clicking the bottom-left region hits the viewport, never the
+    // end-turn box.
+    let state = AppState::default();
+    let area = Rect::new(0, 0, 80, 40);
+    assert!(!state.is_player_turn());
+
+    let tree = ui::compose(&state, area);
+    let outcome = route_event(
+        &left_click(Point::new(3, 37)),
+        &tree,
+        &state,
+        &FocusState::default(),
+    );
+    assert!(!outcome.messages.contains(&AppMessage::EndTurn));
+}
+
+#[test]
+fn end_turn_box_click_ends_player_turn() {
+    let mut state = AppState::default();
+    frust::ecs::start_encounter(&mut state.ecs_world, frust::ecs::SQUIRREL_ENCOUNTER_ID);
+    force_party_turn(&mut state);
+    assert!(state.is_player_turn());
+
+    // Box: column 2, height 3, bottom border one row above the bottom edge, so on
+    // an 80x40 screen it occupies rows 36..=38. (3, 37) is inside.
+    let area = Rect::new(0, 0, 80, 40);
+    let tree = ui::compose(&state, area);
+    let outcome = route_event(
+        &left_click(Point::new(3, 37)),
+        &tree,
+        &state,
+        &FocusState::default(),
+    );
+    assert!(outcome.messages.contains(&AppMessage::EndTurn));
+}
+
 #[test]
 fn viewport_renders_squirrels_as_gray_rodents() {
     let mut state = AppState::default();

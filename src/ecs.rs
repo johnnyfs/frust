@@ -707,13 +707,28 @@ pub fn walk_system(world: &mut World) {
     }
     let active = active_turn_entity(world);
     let leader = party_leader(world);
-    let walkers = {
+    let focused = world.resource::<ControlFocus>().entity;
+    let mut walkers = {
         let mut query = world.query::<(Entity, &Position, &WalkTarget)>();
         query
             .iter(world)
             .map(|(entity, position, target)| (entity, position.0, target.destination))
             .collect::<Vec<_>>()
     };
+    // Process the player's own token last so trailing party members vacate their
+    // tiles first; otherwise the leader can be momentarily blocked by a follower
+    // that is itself about to step aside this same tick. (Stable: order is
+    // otherwise preserved, and combat only moves the single active entity.)
+    walkers.sort_by_key(|(entity, _, _)| *entity == focused);
+    // Tiles currently held by a living creature. Creatures may never share a
+    // tile, so a walker that would step onto an occupied (or obstructive) tile
+    // stops short instead. Kept in sync as walkers move within this tick.
+    let mut occupied: std::collections::HashMap<Vector, Entity> = world
+        .query::<(Entity, &Position, &CombatStats)>()
+        .iter(world)
+        .filter(|(_, _, stats)| stats.hp > 0)
+        .map(|(entity, position, _)| (position.0, entity))
+        .collect();
     let mut arrived = Vec::new();
 
     for (entity, current, destination) in walkers {
@@ -743,6 +758,17 @@ pub fn walk_system(world: &mut World) {
         }
 
         let next = step_toward(current, destination);
+        // No pathfinding: if the next step is into a ridge/chasm/ravine or onto
+        // another creature, the walker just stops and its marker is cleared.
+        let blocked = next != current
+            && (obstructive_terrain_at(world, next)
+                || occupied.get(&next).is_some_and(|&other| other != entity));
+        if blocked {
+            arrived.push((entity, destination));
+            continue;
+        }
+        occupied.remove(&current);
+        occupied.insert(next, entity);
         if let Some(mut position) = world.get_mut::<Position>(entity) {
             position.0 = next;
         }
@@ -778,7 +804,6 @@ pub fn walk_system(world: &mut World) {
         }
     }
 
-    let focused = world.resource::<ControlFocus>().entity;
     for (entity, destination) in arrived {
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.remove::<WalkTarget>();
@@ -1425,6 +1450,15 @@ pub fn distance_m(a: Vector, b: Vector) -> i32 {
     (a.x - b.x).abs().max((a.y - b.y).abs())
 }
 
+/// Whether the terrain at `coord` blocks creature movement. Tiles outside any
+/// loaded region are treated as passable (they may be walked toward freely).
+fn obstructive_terrain_at(world: &World, coord: Vector) -> bool {
+    world
+        .get_resource::<crate::data::world::World>()
+        .and_then(|data| data.terrain_at(coord))
+        .is_some_and(|terrain| terrain.kind().is_obstructive())
+}
+
 fn formation_target(leader: Vector, facing: Vector, order: usize) -> Vector {
     let facing = if facing.x == 0 && facing.y == 0 {
         DEFAULT_FACING
@@ -1497,13 +1531,14 @@ fn log_line(world: &mut World, line: impl Into<String>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActionState, AttackMoveTarget, CombatLog, CombatStats, ControlFocus, EncounterConfig,
-        Faction, GameMode, PartyRoster, Position, Renderable, RenderableEntities,
+        ActionState, ActiveWalkDestination, AttackMoveTarget, CombatLog, CombatStats, ControlFocus,
+        EncounterConfig, Faction, GameMode, PartyRoster, Position, Renderable, RenderableEntities,
         SQUIRREL_ENCOUNTER_ID, SQUIRREL_POSITIONS, TURN_END_PAUSE_TICKS, TurnEndPause, TurnOrder,
         TurnStartPause, ViewFocus, WalkTarget, distance_m, end_current_turn, movement_schedule,
-        spawn_initial_entities, start_encounter, sync_view_focus_system,
+        spawn_initial_entities, start_encounter, sync_view_focus_system, walk_system,
     };
     use crate::data::grid::{ORIGIN, Vector};
+    use crate::data::world::TerrainType;
     use bevy_ecs::world::World;
     use ratatui::style::Color;
 
@@ -1516,6 +1551,13 @@ mod tests {
     fn clear_turn_pauses(world: &mut World) {
         world.resource_mut::<TurnStartPause>().clear();
         world.resource_mut::<TurnEndPause>().clear();
+    }
+
+    /// Inserts a grass region centered at ORIGIN as the terrain data resource so
+    /// `walk_system` can consult tile obstructiveness. Returns nothing; callers
+    /// paint specific tiles afterwards via `set_terrain`.
+    fn insert_clear_region(world: &mut World) {
+        world.insert_resource(crate::data::world::World::new().with_region("Test Field", ORIGIN));
     }
 
     #[test]
@@ -1896,5 +1938,81 @@ mod tests {
         assert_eq!(log.file_error(), None);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn obstructive_terrain_stops_walker_and_clears_destination() {
+        let mut world = world_with_entities();
+        insert_clear_region(&mut world);
+        // Ridge sits three tiles east of the leader's straight-line path.
+        let ridge = Vector { x: 103, y: 0 };
+        let destination = Vector { x: 110, y: 0 };
+        world
+            .resource_mut::<crate::data::world::World>()
+            .set_terrain(ridge, TerrainType::Ridge);
+
+        let leader = world.resource::<ControlFocus>().entity;
+        world.get_mut::<Position>(leader).unwrap().0 = Vector { x: 100, y: 0 };
+        world.entity_mut(leader).insert(WalkTarget { destination });
+        world.resource_mut::<ActiveWalkDestination>().0 = Some(destination);
+
+        for _ in 0..5 {
+            walk_system(&mut world);
+        }
+
+        // Stops on the tile just before the ridge, never entering it.
+        assert_eq!(
+            world.get::<Position>(leader).unwrap().0,
+            Vector { x: 102, y: 0 }
+        );
+        assert!(world.get::<WalkTarget>(leader).is_none());
+        assert_eq!(world.resource::<ActiveWalkDestination>().0, None);
+    }
+
+    #[test]
+    fn walker_never_shares_a_tile_with_another_creature() {
+        let mut world = world_with_entities();
+        insert_clear_region(&mut world);
+
+        let party = world.resource::<PartyRoster>().members.clone();
+        let leader = party[0];
+        let blocker = party[1];
+        world.get_mut::<Position>(leader).unwrap().0 = Vector { x: 100, y: 0 };
+        // Stationary creature parked two tiles ahead on the leader's path.
+        world.get_mut::<Position>(blocker).unwrap().0 = Vector { x: 102, y: 0 };
+        world.entity_mut(leader).insert(WalkTarget {
+            destination: Vector { x: 110, y: 0 },
+        });
+
+        for _ in 0..5 {
+            walk_system(&mut world);
+        }
+
+        let leader_pos = world.get::<Position>(leader).unwrap().0;
+        let blocker_pos = world.get::<Position>(blocker).unwrap().0;
+        // Leader halts adjacent to the blocker; the two never occupy one tile.
+        assert_eq!(leader_pos, Vector { x: 101, y: 0 });
+        assert_ne!(leader_pos, blocker_pos);
+        assert!(world.get::<WalkTarget>(leader).is_none());
+    }
+
+    #[test]
+    fn passable_path_still_reaches_destination() {
+        let mut world = world_with_entities();
+        insert_clear_region(&mut world);
+
+        let leader = world.resource::<ControlFocus>().entity;
+        let destination = Vector { x: 104, y: 0 };
+        world.get_mut::<Position>(leader).unwrap().0 = Vector { x: 100, y: 0 };
+        world.entity_mut(leader).insert(WalkTarget { destination });
+        world.resource_mut::<ActiveWalkDestination>().0 = Some(destination);
+
+        for _ in 0..6 {
+            walk_system(&mut world);
+        }
+
+        assert_eq!(world.get::<Position>(leader).unwrap().0, destination);
+        assert!(world.get::<WalkTarget>(leader).is_none());
+        assert_eq!(world.resource::<ActiveWalkDestination>().0, None);
     }
 }
